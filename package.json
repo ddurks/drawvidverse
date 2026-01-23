@@ -1,0 +1,27 @@
+{
+  "name": "drawvidverse",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reusable scale-to-zero multiplayer backend monorepo",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "dev:worldserver": "pnpm --filter drawvid-worldserver dev",
+    "dev:matchmaker": "pnpm --filter drawvid-matchmaker dev",
+    "dev:full": "./tools/scripts/local-full.sh",
+    "dev:local-matchmaker": "node tools/scripts/local-matchmaker.js",
+    "deploy:matchmaker": "pnpm --filter drawvid-matchmaker deploy"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.15.0",
+  "dependencies": {
+    "ws": "^8.19.0"
+  }
+}

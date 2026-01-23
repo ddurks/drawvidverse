@@ -1,0 +1,39 @@
+{
+  "gameKey": "cyberia",
+  "worldServer": {
+    "port": 7777,
+    "tickHz": 20,
+    "snapshotHz": 15,
+    "maxPlayers": 30,
+    "cellSize": 8,
+    "visRadius": 40,
+    "voiceRadius": 12,
+    "emptyShutdownSeconds": 120,
+    "bootstrapMaxBytes": 5000000
+  },
+  "physics": {
+    "gravity": -20,
+    "jumpSpeed": 8,
+    "moveSpeed": 6,
+    "airControl": 0.4,
+    "playerCapsule": {
+      "radius": 0.35,
+      "height": 1.7
+    }
+  },
+  "world": {
+    "bootstrapRequired": true,
+    "heightmapClamp": {
+      "min": -100,
+      "max": 100
+    },
+    "maxInstancesTotal": 50000,
+    "maxAabbs": 5000
+  },
+  "security": {
+    "jwtTtlSeconds": 900
+  },
+  "aws": {
+    "region": "us-east-2"
+  }
+}
