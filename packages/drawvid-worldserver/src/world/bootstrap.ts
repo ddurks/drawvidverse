@@ -53,6 +53,7 @@ export function validateBootstrap(
       seed: payload.seed,
       heightmapConfig: payload.heightmapConfig,
       instances: totalInstances,
+      cylinders: payload.colliders?.cylinders?.length || 0,
       aabbs: payload.colliders?.aabbs?.length || 0,
     },
     'Bootstrap validated'

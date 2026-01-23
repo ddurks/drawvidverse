@@ -1,6 +1,12 @@
-import { GameConfig } from '../app/config';
+import { GameConfig } from '../../app/config';
 import { Vec3, AABB, vec3Add, vec3Scale, aabbIntersectsAABB } from './colliders';
-import { WorldBootstrapPayload } from '../net/messages';
+import { WorldBootstrapPayload } from '../../net/messages';
+
+interface Cylinder {
+  position: Vec3;
+  radius: number;
+  height: number;
+}
 
 export interface PlayerState {
   position: Vec3;
@@ -36,6 +42,7 @@ export class Physics {
     heights: number[];
   };
   private aabbs: AABB[] = [];
+  private cylinders: Cylinder[] = [];
 
   constructor(config: GameConfig) {
     this.config = config;
@@ -46,19 +53,24 @@ export class Physics {
     
     if (bootstrap.terrainConfig) {
       this.terrainConfig = bootstrap.terrainConfig;
-      console.log(`🗺️  Physics using sine wave terrain: freq=${this.terrainConfig.frequency}, amp=${this.terrainConfig.amplitude}`);
+      // Physics using sine wave terrain
     } else if (bootstrap.heightmapConfig) {
       this.heightmapScale = bootstrap.heightmapConfig.scale;
       this.heightmapAmplitude = bootstrap.heightmapConfig.amplitude;
-      console.log(`🗺️  Physics procedural terrain loaded: seed=${this.seed}, scale=${this.heightmapScale}, amplitude=${this.heightmapAmplitude}`);
+      // Procedural terrain loaded
     }
     
     if (bootstrap.terrainMesh) {
       this.terrainMesh = bootstrap.terrainMesh;
-      console.log(`🗺️  Physics using client terrain mesh: ${this.terrainMesh.width}x${this.terrainMesh.depth}, ${this.terrainMesh.heights.length} heights`);
+      // Using client terrain mesh
     }
     
     this.aabbs = bootstrap.colliders?.aabbs || [];
+    this.cylinders = bootstrap.colliders?.cylinders || [];
+    
+    if (this.cylinders.length > 0) {
+      // Cylinder colliders loaded
+    }
   }
 
   tick(player: PlayerState, input: PlayerInput, dt: number): void {
@@ -126,7 +138,7 @@ export class Physics {
 
     // Debug: log terrain heights occasionally
     if (Math.random() < 0.01) {
-      console.log(`🏔️  Server terrain at (${newPos.x.toFixed(1)}, ${newPos.z.toFixed(1)}): terrainY=${terrainY.toFixed(2)}, groundY=${groundY.toFixed(2)}, playerY=${newPos.y.toFixed(2)}`);
+      // Server terrain collision applied
     }
 
     if (newPos.y <= groundY) {
@@ -139,6 +151,9 @@ export class Physics {
 
     // AABB collision (simple push-out)
     this.resolveAABBCollisions(newPos, cfg.playerCapsule.radius);
+    
+    // Cylinder collision (tree collisions)
+    this.resolveCylinderCollisions(newPos, cfg.playerCapsule.radius);
 
     player.position = newPos;
   }
@@ -245,6 +260,45 @@ export class Physics {
           position.y += dy * pushOut;
           position.z += dz * pushOut;
         }
+      }
+    }
+  }
+
+  private resolveCylinderCollisions(position: Vec3, radius: number): void {
+    // Sphere-cylinder collision for tree trunks
+    // Cylinders come from client with position at CENTER of cylinder (y + height/2)
+    for (const cylinder of this.cylinders) {
+      // Get horizontal distance from cylinder axis
+      const dx = position.x - cylinder.position.x;
+      const dz = position.z - cylinder.position.z;
+      const horizontalDistSq = dx * dx + dz * dz;
+      const combinedRadius = radius + cylinder.radius;
+      
+      // Quick horizontal rejection test
+      if (horizontalDistSq >= combinedRadius * combinedRadius) {
+        continue;
+      }
+      
+      // Check vertical bounds (cylinder position is at CENTER, extends ±height/2)
+      const cylinderBottom = cylinder.position.y - cylinder.height / 2;
+      const cylinderTop = cylinder.position.y + cylinder.height / 2;
+      
+      // If sphere is above or below cylinder, skip
+      if (position.y + radius < cylinderBottom || position.y - radius > cylinderTop) {
+        continue;
+      }
+      
+      // We have a collision, push the player out horizontally
+      const horizontalDist = Math.sqrt(horizontalDistSq);
+      
+      if (horizontalDist < 0.001) {
+        // Player is exactly on cylinder axis, push in arbitrary direction
+        position.x += combinedRadius;
+      } else {
+        // Push player out along the horizontal direction
+        const pushOut = (combinedRadius - horizontalDist) / horizontalDist;
+        position.x += dx * pushOut;
+        position.z += dz * pushOut;
       }
     }
   }

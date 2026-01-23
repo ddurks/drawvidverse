@@ -21,7 +21,7 @@ const connections = new Map<WebSocket, ConnectionState>();
 
 // Rate limits (per second)
 const RATE_LIMITS = {
-  input: 120, // Allow high frequency input for smooth movement
+  input: 200, // Allow bursts above 30Hz input rate (3x safety margin)
   signaling: 20,
   bootstrapUpload: 1,
 };
@@ -121,12 +121,14 @@ async function handleMessage(
         sendError(ws, 'NOT_JOINED', 'Must join first');
         return;
       }
-      if (++state.inputCount > RATE_LIMITS.input) {
+      // Check rate limit before incrementing to avoid compounding
+      if (state.inputCount >= RATE_LIMITS.input) {
         logger.warn({ playerId: state.playerId, count: state.inputCount }, 'Input rate limit exceeded');
         sendError(ws, 'RATE_LIMIT', 'Too many input messages');
         return;
       }
-      logger.debug({ playerId: state.playerId, seq: message.seq, mx: message.mx, mz: message.mz }, 'Received input message');
+      state.inputCount++;
+      // Handle input message
       world.handleInput(state.playerId, message);
       break;
 

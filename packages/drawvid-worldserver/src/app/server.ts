@@ -3,7 +3,7 @@ import { logger } from './logger';
 import { loadServerConfig, ServerConfig } from './config';
 import { createWSServer } from '../net/wsServer';
 import { World } from '../world/world';
-import { createWorldStore } from '../world/worldStore.index';
+import { createWorldStore } from '../world/storage';
 
 export class Server {
   private config: ServerConfig;

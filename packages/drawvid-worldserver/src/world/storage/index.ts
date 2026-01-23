@@ -1,4 +1,4 @@
-import { ServerConfig } from '../app/config';
+import { ServerConfig } from '../../app/config';
 import { WorldStore } from './worldStore';
 import { InMemoryWorldStore } from './inMemoryWorldStore';
 import { DDBWorldStore } from './ddbWorldStore';

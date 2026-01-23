@@ -1,4 +1,4 @@
-import { vec3Distance, Vec3 } from '../world/colliders';
+import { vec3Distance, Vec3 } from '../world/physics/colliders';
 
 export interface PlayerPosition {
   id: string;

@@ -2,9 +2,9 @@ import WebSocket from 'ws';
 import { z } from 'zod';
 import { ServerConfig } from '../app/config';
 import { logger } from '../app/logger';
-import { WorldStore } from './worldStore';
-import { Physics, PlayerState, PlayerInput } from './physics';
-import { SpatialHash } from './spatialHash';
+import { WorldStore } from './storage/worldStore';
+import { Physics, PlayerState, PlayerInput } from './physics/physics';
+import { SpatialHash } from './physics/spatialHash';
 import { validateBootstrap } from './bootstrap';
 import { computeProximityPeers } from '../voice/proximityVoice';
 import { SignalingRelay, SignalingMessage } from '../voice/signalingRelay';
@@ -154,11 +154,6 @@ export class World {
 
     player.lastInputSeq = input.seq;
 
-    // Debug: log input
-    if (input.mx !== 0 || input.mz !== 0) {
-      logger.info({ playerId, seq: input.seq, mx: input.mx, mz: input.mz, yaw: input.yaw }, 'Input received');
-    }
-
     // Queue input for next tick (for simplicity, just apply immediately)
     const playerInput: PlayerInput = {
       mx: input.mx,
@@ -178,12 +173,7 @@ export class World {
     playerId: string,
     payload: WorldBootstrapPayload
   ): Promise<void> {
-    logger.info({ 
-      playerId, 
-      hasSeed: !!payload.seed, 
-      hasTerrainConfig: !!payload.terrainConfig,
-      hasHeightmapConfig: !!payload.heightmapConfig 
-    }, '📥 Bootstrap upload received');
+    logger.info({ playerId }, 'Bootstrap upload received');
     
     const player = this.players.get(playerId);
     if (!player) {
@@ -219,12 +209,7 @@ export class World {
     this.physics.setBootstrap(payload);
     this.bootstrapLoaded = true;
 
-    logger.info({ 
-      playerId, 
-      seed: payload.seed,
-      heightmapConfig: payload.heightmapConfig,
-      numTrees: payload.instances?.[0]?.positions?.length || 0
-    }, '✅ Bootstrap uploaded and stored successfully - PROCEDURAL TERRAIN NOW ACTIVE');
+    logger.info({ playerId, seed: payload.seed }, 'Bootstrap stored successfully');
 
     // Broadcast to all players
     for (const p of this.players.values()) {

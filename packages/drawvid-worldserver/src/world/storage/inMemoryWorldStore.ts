@@ -1,5 +1,5 @@
 import { WorldStore } from './worldStore';
-import { WorldBootstrapPayload } from '../net/messages';
+import { WorldBootstrapPayload } from '../../net/messages';
 
 export class InMemoryWorldStore implements WorldStore {
   private bootstrap: WorldBootstrapPayload | null = null;

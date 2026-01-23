@@ -15,6 +15,20 @@ export const AABBSchema = z.object({
   max: Vec3Schema,
 });
 
+export const QuaternionSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  z: z.number(),
+  w: z.number(),
+});
+
+export const CylinderColliderSchema = z.object({
+  position: Vec3Schema,
+  quaternion: QuaternionSchema,
+  radius: z.number(),
+  height: z.number(),
+});
+
 export const HeightmapSchema = z.object({
   width: z.number().int().positive(),
   depth: z.number().int().positive(),
@@ -35,6 +49,7 @@ export const InstanceGroupSchema = z.object({
       z: z.number(),
       yaw: z.number().optional(),
       scale: z.number().optional(),
+      type: z.string().optional(), // Tree type for deterministic rendering
     })
   ),
 });
@@ -61,7 +76,8 @@ export const WorldBootstrapPayloadSchema = z.object({
   instances: z.array(InstanceGroupSchema),
   colliders: z
     .object({
-      aabbs: z.array(AABBSchema).optional(),
+      cylinders: z.array(CylinderColliderSchema).optional(), // New: Cannon.js cylinder colliders
+      aabbs: z.array(AABBSchema).optional(), // Legacy: AABB colliders
     })
     .optional(),
 });

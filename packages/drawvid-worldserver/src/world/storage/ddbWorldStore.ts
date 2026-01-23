@@ -1,7 +1,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
 import { WorldStore } from './worldStore';
-import { WorldBootstrapPayload } from '../net/messages';
+import { WorldBootstrapPayload } from '../../net/messages';
 
 export class DDBWorldStore implements WorldStore {
   private client: DynamoDBDocumentClient;

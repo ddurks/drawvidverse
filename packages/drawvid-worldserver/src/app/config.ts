@@ -27,6 +27,7 @@ export const GameConfigSchema = z.object({
     bootstrapMaxBytes: z.number(),
   }),
   physics: z.object({
+    engine: z.enum(['custom', 'cannon', 'havok']).optional().default('cannon'),
     gravity: z.number(),
     jumpSpeed: z.number(),
     moveSpeed: z.number(),
