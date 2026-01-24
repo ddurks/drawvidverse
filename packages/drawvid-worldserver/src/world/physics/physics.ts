@@ -14,6 +14,7 @@ export interface PlayerState {
   yaw: number;
   grounded: boolean;
   jumpRequested: boolean;
+  coatColor?: { r: number; g: number; b: number };
 }
 
 export interface PlayerInput {

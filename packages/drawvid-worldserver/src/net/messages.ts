@@ -96,6 +96,11 @@ export const AuthMessageSchema = z.object({
 export const JoinMessageSchema = z.object({
   t: z.literal('join'),
   name: z.string().optional(),
+  coatColor: z.object({
+    r: z.number(),
+    g: z.number(),
+    b: z.number(),
+  }).optional(),
 });
 
 export const InputMessageSchema = z.object({
@@ -179,6 +184,7 @@ export interface PlayerSnapshot {
   vz: number;
   yaw: number;
   grounded: boolean;
+  coatColor?: { r: number; g: number; b: number };
 }
 
 export interface SnapshotMessage {

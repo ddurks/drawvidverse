@@ -85,7 +85,7 @@ export class World {
     logger.info('World shutdown complete');
   }
 
-  async addPlayer(playerId: string, name: string, ws: WebSocket): Promise<void> {
+  async addPlayer(playerId: string, name: string, ws: WebSocket, coatColor?: { r: number; g: number; b: number }): Promise<void> {
     // Spawn position (center of world or near origin)
     const spawnPos = { x: 0, y: 50, z: 0 };
 
@@ -99,6 +99,7 @@ export class World {
         yaw: 0,
         grounded: false,
         jumpRequested: false,
+        coatColor,
       },
       lastInputSeq: 0,
     };
@@ -303,6 +304,7 @@ export class World {
       vz: player.state.velocity.z,
       yaw: player.state.yaw,
       grounded: player.state.grounded,
+      coatColor: player.state.coatColor,
     };
   }
 

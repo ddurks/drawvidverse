@@ -30,9 +30,16 @@ export function createWSServer(config: ServerConfig, world: World): WebSocketSer
   const wss = new WebSocketServer({
     port: config.gameConfig.worldServer.port,
     host: '0.0.0.0',
+    perMessageDeflate: false, // Disable compression for better Safari compatibility
+    clientTracking: true,
+    maxPayload: 10 * 1024 * 1024, // 10MB
   });
 
-  wss.on('connection', (ws: WebSocket) => {
+  logger.info({ port: config.gameConfig.worldServer.port, host: '0.0.0.0' }, 'WebSocket server listening');
+
+  wss.on('connection', (ws: WebSocket, req) => {
+    const clientIp = req.socket.remoteAddress;
+    logger.info({ clientIp, headers: req.headers }, 'WebSocket connection attempt');
     const connId = generateConnectionId();
     const state: ConnectionState = {
       id: connId,
@@ -113,7 +120,7 @@ async function handleMessage(
         sendError(ws, 'NOT_AUTHENTICATED', 'Must authenticate first');
         return;
       }
-      await handleJoin(ws, state, message.name, world);
+      await handleJoin(ws, state, message.name, world, message.coatColor);
       break;
 
     case 'in':
@@ -172,6 +179,13 @@ async function handleAuth(
   world: World
 ): Promise<void> {
   try {
+    // Bypass auth for local development
+    if (token === 'local-dev-bypass' && config.worldId === 'local') {
+      state.authenticated = true;
+      logger.info({ connId: state.id }, 'Client authenticated (local dev bypass)');
+      return;
+    }
+
     const decoded = verify(token, config.jwtSecret) as any;
 
     if (decoded.worldId !== config.worldId || decoded.gameKey !== config.gameKey) {
@@ -193,7 +207,8 @@ async function handleJoin(
   ws: WebSocket,
   state: ConnectionState,
   name: string | undefined,
-  world: World
+  world: World,
+  coatColor?: { r: number; g: number; b: number }
 ): Promise<void> {
   if (state.playerId) {
     sendError(ws, 'ALREADY_JOINED', 'Already joined');
@@ -203,7 +218,7 @@ async function handleJoin(
   const playerId = generatePlayerId();
   state.playerId = playerId;
 
-  await world.addPlayer(playerId, name || 'Player', ws);
+  await world.addPlayer(playerId, name || 'Player', ws, coatColor);
 
   sendMessage(ws, {
     t: 'welcome',
