@@ -11,15 +11,16 @@ cd /Users/onlinedavid/code/cyberia
 npm run dev &
 FE_PID=$!
 
-# Wait for Vite to start, then open browser
-sleep 3
-echo "🌐 Opening browser..."
-open -a "Google Chrome" "http://localhost:3000"
-
 # Keep script running and handle Ctrl+C to kill both processes
 trap "echo '🛑 Stopping services...'; kill $WORLD_PID $FE_PID 2>/dev/null; exit" INT TERM
 
+# Wait for Vite to start
+sleep 3
+echo ""
 echo "✅ Services running (Ctrl+C to stop)"
 echo "   World Server PID: $WORLD_PID"
 echo "   Frontend PID: $FE_PID"
+echo ""
+echo "🌐 Open in browser: http://localhost:3000"
+echo ""
 wait

@@ -39,7 +39,9 @@ export function createWSServer(config: ServerConfig, world: World): WebSocketSer
 
   wss.on('connection', (ws: WebSocket, req) => {
     const clientIp = req.socket.remoteAddress;
-    logger.info({ clientIp, headers: req.headers }, 'WebSocket connection attempt');
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
+    logger.info({ clientIp, userAgent, isIOS, headers: req.headers }, 'WebSocket connection established');
     const connId = generateConnectionId();
     const state: ConnectionState = {
       id: connId,
