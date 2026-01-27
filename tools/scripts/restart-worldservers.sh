@@ -5,7 +5,6 @@ set -e
 
 CLUSTER="drawvidverse-cluster"
 REGION="us-east-2"
-TABLE_NAME="DrawvidVerseMatchmakerStack-WorldsTableXXX" # TODO: Replace with your actual table name
 
 # Stop all running ECS tasks
 echo "Stopping all running world server ECS tasks..."
@@ -16,6 +15,16 @@ for TASK in $TASKS; do
 done
 
 echo "ECS tasks stop requested."
+
+# Get the table name from CloudFormation stack output
+STACK_NAME="DrawvidVerseMatchmakerStack"
+TABLE_NAME=$(aws cloudformation describe-stacks \
+  --stack-name $STACK_NAME \
+  --region $REGION \
+  --query "Stacks[0].Outputs[?OutputKey=='WorldsTableName'].OutputValue" \
+  --output text)
+
+echo "Using DynamoDB table: $TABLE_NAME"
 
 # Clean up DynamoDB worlds table (delete all items)
 echo "Cleaning up DynamoDB worlds table: $TABLE_NAME"
