@@ -2,6 +2,12 @@
 
 Reusable, scale-to-zero multiplayer backend monorepo for multiple 3D games.
 
+## Quick Links
+
+- 🚀 **Deployment**: See [GITHUB_ACTIONS_SETUP.md](GITHUB_ACTIONS_SETUP.md) for automated CI/CD
+- 📖 **Scripts**: See [tools/README.md](tools/README.md) for manual deployment
+- 🔧 **Architecture**: See below
+
 ## Architecture
 
 - **drawvid-matchmaker**: AWS serverless lobby (API Gateway WebSocket + Lambda + DynamoDB) that launches ECS tasks
@@ -16,6 +22,7 @@ Reusable, scale-to-zero multiplayer backend monorepo for multiple 3D games.
 - Authoritative movement, jumping, and simple collision
 - Interest management and proximity voice chat (WebRTC signaling relay)
 - World bootstrapping: first player uploads procedural terrain/trees; server persists and serves to later players
+- **Automated deployment** via GitHub Actions on merge to main
 
 ## Quick Start
 
@@ -37,11 +44,34 @@ pnpm build
 pnpm dev:worldserver -- --game cyberia
 ```
 
-### Deploy matchmaker to AWS
+### Manual deployment (see GITHUB_ACTIONS_SETUP.md for automated)
 
 ```bash
-pnpm deploy:matchmaker -- --game cyberia
+# Deploy matchmaker backend
+./tools/scripts/deploy-matchmaker.sh
+
+# Build and push world server image
+./tools/scripts/build-worldserver.sh 593615615124.dkr.ecr.us-east-2.amazonaws.com/drawvidverse-worldserver
+
+# Deploy frontend
+./tools/scripts/deploy-frontend.sh
 ```
+
+## Automated Deployment (GitHub Actions)
+
+The repository is configured with GitHub Actions to automatically deploy on merge to `main`:
+
+1. **Setup**: Follow [GITHUB_ACTIONS_SETUP.md](GITHUB_ACTIONS_SETUP.md)
+2. **Push changes** to `main` branch
+3. **Automatic detection**: Workflow detects which components changed
+4. **Parallel deployment**: Only changed components are deployed
+5. **Production live**: In 2-5 minutes depending on component
+
+### What triggers deployment?
+
+- **Frontend changes**: Any change in `cyberia/` → Deploy frontend to S3/CloudFront
+- **World Server changes**: Any change in `packages/drawvid-worldserver/` or `games/` → Build & push ECR image
+- **Matchmaker changes**: Any change in `packages/drawvid-matchmaker/` or `games/` → Deploy CDK stack
 
 ## Project Structure
 

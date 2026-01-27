@@ -1,0 +1,215 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-2
+  AWS_ACCOUNT_ID: 593615615124
+  ECR_REGISTRY: 593615615124.dkr.ecr.us-east-2.amazonaws.com
+  ECR_REPOSITORY: drawvidverse-worldserver
+
+jobs:
+  detect-changes:
+    name: Detect Component Changes
+    runs-on: ubuntu-latest
+    outputs:
+      matchmaker-changed: ${{ steps.changes.outputs.matchmaker }}
+      worldserver-changed: ${{ steps.changes.outputs.worldserver }}
+      frontend-changed: ${{ steps.changes.outputs.frontend }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changes
+        id: changes
+        run: |
+          # Get the list of changed files
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD)
+          else
+            # For push events, compare with previous commit
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
+          fi
+          
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+          
+          # Check which components changed
+          MATCHMAKER_CHANGED=false
+          WORLDSERVER_CHANGED=false
+          FRONTEND_CHANGED=false
+          
+          if echo "$CHANGED_FILES" | grep -qE "^packages/drawvid-matchmaker/|^games/"; then
+            MATCHMAKER_CHANGED=true
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -qE "^packages/drawvid-worldserver/|^games/"; then
+            WORLDSERVER_CHANGED=true
+          fi
+          
+          if echo "$CHANGED_FILES" | grep -qE "^cyberia/"; then
+            FRONTEND_CHANGED=true
+          fi
+          
+          echo "matchmaker=$MATCHMAKER_CHANGED" >> $GITHUB_OUTPUT
+          echo "worldserver=$WORLDSERVER_CHANGED" >> $GITHUB_OUTPUT
+          echo "frontend=$FRONTEND_CHANGED" >> $GITHUB_OUTPUT
+          
+          echo "Matchmaker changed: $MATCHMAKER_CHANGED"
+          echo "World server changed: $WORLDSERVER_CHANGED"
+          echo "Frontend changed: $FRONTEND_CHANGED"
+
+  deploy-matchmaker:
+    name: Deploy Matchmaker
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.matchmaker-changed == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'packages/drawvid-matchmaker/package-lock.json'
+
+      - name: Install dependencies
+        run: |
+          cd packages/drawvid-matchmaker
+          npm ci
+
+      - name: Build matchmaker
+        run: |
+          cd packages/drawvid-matchmaker
+          npm run build
+
+      - name: Deploy matchmaker stack
+        run: |
+          cd packages/drawvid-matchmaker/infra
+          npx cdk deploy --all --require-approval never
+        env:
+          GAME_KEY: cyberia
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Matchmaker deployed successfully"
+          echo "CDK Stack: DrawvidVerseMatchmakerStack"
+          echo "Region: ${{ env.AWS_REGION }}"
+
+  deploy-worldserver:
+    name: Deploy World Server
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.worldserver-changed == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build world server image
+        run: |
+          ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
+
+      - name: Deployment summary
+        run: |
+          echo "✅ World server image built and pushed to ECR"
+          echo "Repository: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
+          echo "Note: ECS will automatically use the new image on next task launch"
+
+  deploy-frontend:
+    name: Deploy Frontend
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend-changed == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'cyberia/package-lock.json'
+
+      - name: Install dependencies
+        run: |
+          cd cyberia
+          npm ci
+
+      - name: Deploy frontend
+        run: |
+          ./tools/scripts/deploy-frontend.sh
+
+      - name: Wait for CloudFront invalidation
+        run: |
+          echo "⏳ CloudFront cache invalidation in progress..."
+          echo "Frontend will be live in 1-2 minutes at https://cyberia.drawvid.com"
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Frontend deployed to S3 and CloudFront invalidation initiated"
+          echo "S3 Bucket: cyberia-drawvid-frontend-593615615124"
+          echo "CloudFront Distribution: E2CCOO5NN3Z8QV"
+          echo "URL: https://cyberia.drawvid.com"
+
+  deployment-complete:
+    name: Deployment Complete
+    runs-on: ubuntu-latest
+    needs: [detect-changes, deploy-matchmaker, deploy-worldserver, deploy-frontend]
+    if: always()
+    steps:
+      - name: Check deployment results
+        run: |
+          echo "🚀 Deployment Pipeline Complete"
+          echo ""
+          echo "Component Summary:"
+          echo "- Matchmaker: ${{ needs.detect-changes.outputs.matchmaker-changed == 'true' && '✅ Deployed' || '⏭️  Skipped' }}"
+          echo "- World Server: ${{ needs.detect-changes.outputs.worldserver-changed == 'true' && '✅ Deployed' || '⏭️  Skipped' }}"
+          echo "- Frontend: ${{ needs.detect-changes.outputs.frontend-changed == 'true' && '✅ Deployed' || '⏭️  Skipped' }}"
+          echo ""
+          echo "Production URLs:"
+          echo "- Frontend: https://cyberia.drawvid.com"
+          echo "- Matchmaker: wss://matchmaker.drawvid.com/prod"
+          echo "- World Server: wss://world.drawvid.com:443"
+
+      - name: Fail if any deployment failed
+        if: |
+          (needs.detect-changes.outputs.matchmaker-changed == 'true' && needs.deploy-matchmaker.result == 'failure') ||
+          (needs.detect-changes.outputs.worldserver-changed == 'true' && needs.deploy-worldserver.result == 'failure') ||
+          (needs.detect-changes.outputs.frontend-changed == 'true' && needs.deploy-frontend.result == 'failure')
+        run: |
+          echo "❌ One or more deployments failed!"
+          exit 1
