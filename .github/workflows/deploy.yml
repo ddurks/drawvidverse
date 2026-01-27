@@ -101,6 +101,55 @@ jobs:
           echo "World server changed: $WORLDSERVER_CHANGED"
           echo "Frontend changed: $FRONTEND_CHANGED"
 
+  cleanup-for-worldserver:
+    name: Cleanup Infrastructure for World Server Deployment
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.worldserver-changed == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Stop ECS tasks
+        run: |
+          CLUSTER="drawvidverse-cluster"
+          REGION="${{ env.AWS_REGION }}"
+          
+          echo "Stopping all running ECS tasks..."
+          TASKS=$(aws ecs list-tasks --cluster $CLUSTER --region $REGION --desired-status RUNNING --output text --query 'taskArns[]' 2>/dev/null || echo "")
+          if [ -n "$TASKS" ]; then
+            for TASK in $TASKS; do
+              echo "Stopping $TASK"
+              aws ecs stop-task --cluster $CLUSTER --task $TASK --region $REGION 2>/dev/null || true
+            done
+          fi
+          
+          echo "Waiting 15 seconds for tasks to stop..."
+          sleep 15
+
+      - name: Destroy CloudFormation stack
+        run: |
+          STACK_NAME="DrawvidVerseMatchmakerStack"
+          echo "Destroying stack: $STACK_NAME"
+          aws cloudformation delete-stack --stack-name $STACK_NAME --region ${{ env.AWS_REGION }}
+          echo "Stack deletion initiated..."
+
+      - name: Wait for stack deletion
+        run: |
+          STACK_NAME="DrawvidVerseMatchmakerStack"
+          echo "Waiting for stack deletion to complete..."
+          aws cloudformation wait stack-delete-complete \
+            --stack-name $STACK_NAME \
+            --region ${{ env.AWS_REGION }} || echo "Stack deletion completed or does not exist"
+          echo "Stack cleaned up"
+
   deploy-matchmaker:
     name: Deploy Matchmaker
     runs-on: ubuntu-latest
@@ -153,7 +202,7 @@ jobs:
   deploy-worldserver:
     name: Deploy World Server
     runs-on: ubuntu-latest
-    needs: detect-changes
+    needs: [detect-changes, cleanup-for-worldserver]
     if: needs.detect-changes.outputs.worldserver-changed == 'true'
     steps:
       - name: Checkout code
@@ -183,38 +232,12 @@ jobs:
         run: |
           ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
 
-      - name: Delete and recreate infrastructure for clean world server deployment
-        run: |
-          CLUSTER="drawvidverse-cluster"
-          REGION="${{ env.AWS_REGION }}"
-          STACK_NAME="DrawvidVerseMatchmakerStack"
-
-          echo "Stopping all running ECS tasks..."
-          TASKS=$(aws ecs list-tasks --cluster $CLUSTER --region $REGION --desired-status RUNNING --output text --query 'taskArns[]' 2>/dev/null || echo "")
-          if [ -n "$TASKS" ]; then
-            for TASK in $TASKS; do
-              echo "Stopping $TASK"
-              aws ecs stop-task --cluster $CLUSTER --task $TASK --region $REGION 2>/dev/null || true
-            done
-          fi
-
-          echo "Waiting 15 seconds for tasks to stop..."
-          sleep 15
-
-          echo "Deleting CloudFormation stack..."
-          aws cloudformation delete-stack --stack-name $STACK_NAME --region $REGION 2>/dev/null || echo "Stack deletion initiated"
-          
-          echo "Waiting for stack deletion..."
-          aws cloudformation wait stack-delete-complete --stack-name $STACK_NAME --region $REGION 2>/dev/null || true
-          
-          echo "Stack deleted - ready for fresh deployment"
-
-      - name: Build matchmaker for fresh CDK deploy
+      - name: Build matchmaker for CDK deploy
         run: |
           cd packages/drawvid-matchmaker
           npm run build
 
-      - name: Deploy fresh matchmaker stack with new world server image
+      - name: Redeploy infrastructure with new world server image
         run: |
           cd packages/drawvid-matchmaker/infra
           npx cdk deploy --all --require-approval never
@@ -224,13 +247,13 @@ jobs:
       - name: Deployment summary
         run: |
           echo "✅ World server image built and pushed to ECR"
-          echo "✅ Infrastructure fully recreated and wired to NLB"
+          echo "✅ Infrastructure redeployed with new image"
           echo "Repository: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
 
   deployment-complete:
     name: Deployment Complete
     runs-on: ubuntu-latest
-    needs: [detect-changes, deploy-matchmaker, deploy-worldserver]
+    needs: [detect-changes, deploy-matchmaker, deploy-worldserver, cleanup-for-worldserver]
     if: always()
     steps:
       - name: Check deployment results
