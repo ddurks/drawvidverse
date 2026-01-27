@@ -207,13 +207,13 @@ jobs:
           node-version: '20'
 
       - name: Install dependencies
-        run: |
-          cd cyberia
-          npm install
+        run: npm install --prefix cyberia
+
+      - name: Build frontend
+        run: npm run build --prefix cyberia
 
       - name: Deploy frontend
-        run: |
-          ./tools/scripts/deploy-frontend.sh
+        run: ./tools/scripts/deploy-frontend.sh
 
       - name: Wait for CloudFront invalidation
         run: |
