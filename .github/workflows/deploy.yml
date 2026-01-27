@@ -125,8 +125,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: 'packages/drawvid-matchmaker/package-lock.json'
 
       - name: Install dependencies
         run: |
@@ -207,8 +205,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: 'cyberia/package-lock.json'
 
       - name: Install dependencies
         run: |
