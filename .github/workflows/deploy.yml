@@ -40,7 +40,6 @@ jobs:
     outputs:
       matchmaker-changed: ${{ steps.changes.outputs.matchmaker }}
       worldserver-changed: ${{ steps.changes.outputs.worldserver }}
-      frontend-changed: ${{ steps.changes.outputs.frontend }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -185,70 +184,21 @@ jobs:
           echo "Repository: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
           echo "Note: ECS will automatically use the new image on next task launch"
 
-  deploy-frontend:
-    name: Deploy Frontend
-    runs-on: ubuntu-latest
-    needs: detect-changes
-    if: needs.detect-changes.outputs.frontend-changed == 'true'
-    steps:
-      - name: Checkout drawvidverse
-        uses: actions/checkout@v4
-        with:
-          path: drawvidverse
-
-      - name: Checkout cyberia
-        uses: actions/checkout@v4
-        with:
-          repository: ddurks/cyberia
-          path: cyberia
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install dependencies
-        run: npm install --prefix cyberia
-
-      - name: Build frontend
-        run: npm run build --prefix cyberia
-
-      - name: Deploy frontend
-        run: cd drawvidverse && ./tools/scripts/deploy-frontend.sh
-
-      - name: Wait for CloudFront invalidation
-        run: |
-          echo "⏳ CloudFront cache invalidation in progress..."
-          echo "Frontend will be live in 1-2 minutes at https://cyberia.drawvid.com"
-
-      - name: Deployment summary
-        run: |
-          echo "✅ Frontend deployed to S3 and CloudFront invalidation initiated"
-          echo "S3 Bucket: cyberia-drawvid-frontend-593615615124"
-          echo "CloudFront Distribution: E2CCOO5NN3Z8QV"
-          echo "URL: https://cyberia.drawvid.com"
-
   deployment-complete:
     name: Deployment Complete
     runs-on: ubuntu-latest
-    needs: [detect-changes, deploy-matchmaker, deploy-worldserver, deploy-frontend]
+    needs: [detect-changes, deploy-matchmaker, deploy-worldserver]
     if: always()
     steps:
       - name: Check deployment results
         run: |
-          echo "🚀 Deployment Pipeline Complete"
+          echo "🚀 Backend Deployment Pipeline Complete"
           echo ""
           echo "Component Summary:"
           echo "- Matchmaker: ${{ needs.detect-changes.outputs.matchmaker-changed == 'true' && '✅ Deployed' || '⏭️  Skipped' }}"
           echo "- World Server: ${{ needs.detect-changes.outputs.worldserver-changed == 'true' && '✅ Deployed' || '⏭️  Skipped' }}"
-          echo "- Frontend: ${{ needs.detect-changes.outputs.frontend-changed == 'true' && '✅ Deployed' || '⏭️  Skipped' }}"
+          echo ""
+          echo "Note: Frontend deployment is handled by cyberia repository"
           echo ""
           echo "Production URLs:"
           echo "- Frontend: https://cyberia.drawvid.com"
@@ -258,8 +208,7 @@ jobs:
       - name: Fail if any deployment failed
         if: |
           (needs.detect-changes.outputs.matchmaker-changed == 'true' && needs.deploy-matchmaker.result == 'failure') ||
-          (needs.detect-changes.outputs.worldserver-changed == 'true' && needs.deploy-worldserver.result == 'failure') ||
-          (needs.detect-changes.outputs.frontend-changed == 'true' && needs.deploy-frontend.result == 'failure')
+          (needs.detect-changes.outputs.worldserver-changed == 'true' && needs.deploy-worldserver.result == 'failure')
         run: |
           echo "❌ One or more deployments failed!"
           exit 1
