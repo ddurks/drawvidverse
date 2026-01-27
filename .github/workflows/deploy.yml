@@ -203,6 +203,11 @@ jobs:
 
           echo "Cluster will be recreated on next CDK deploy with new world server image"
 
+      - name: Build matchmaker for CDK deploy
+        run: |
+          cd packages/drawvid-matchmaker
+          npm run build
+
       - name: Redeploy matchmaker stack to recreate ECS cluster
         run: |
           cd packages/drawvid-matchmaker/infra
