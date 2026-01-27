@@ -183,49 +183,29 @@ jobs:
         run: |
           ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
 
-      - name: Delete ECS cluster to force recreation with new image
+      - name: Stop existing ECS tasks to force new deployment with new image
         run: |
           CLUSTER="drawvidverse-cluster"
           REGION="${{ env.AWS_REGION }}"
-          STACK_NAME="DrawvidVerseMatchmakerStack"
 
           echo "Stopping all running ECS tasks..."
           TASKS=$(aws ecs list-tasks --cluster $CLUSTER --region $REGION --desired-status RUNNING --output text --query 'taskArns[]' 2>/dev/null || echo "")
-          for TASK in $TASKS; do
-            echo "Stopping $TASK"
-            aws ecs stop-task --cluster $CLUSTER --task $TASK --region $REGION 2>/dev/null || true
-          done
+          if [ -z "$TASKS" ]; then
+            echo "No running tasks found"
+          else
+            for TASK in $TASKS; do
+              echo "Stopping $TASK"
+              aws ecs stop-task --cluster $CLUSTER --task $TASK --region $REGION 2>/dev/null || true
+            done
+          fi
 
-          echo "Waiting 15 seconds for tasks to stop..."
-          sleep 15
-
-          echo "Deleting ECS cluster (next CDK deploy will recreate it)..."
-          aws ecs delete-cluster --cluster $CLUSTER --region $REGION 2>/dev/null || echo "Cluster already deleted or does not exist"
-
-          echo "Deleting CloudFormation stack to force fresh CDK deploy..."
-          aws cloudformation delete-stack --stack-name $STACK_NAME --region $REGION 2>/dev/null || echo "Stack deletion initiated"
-          
-          echo "Waiting for stack deletion..."
-          aws cloudformation wait stack-delete-complete --stack-name $STACK_NAME --region $REGION 2>/dev/null || echo "Stack already deleted"
-          
-          echo "Stack and cluster cleared - ready for fresh CDK deploy"
-
-      - name: Build matchmaker for CDK deploy
-        run: |
-          cd packages/drawvid-matchmaker
-          npm run build
-
-      - name: Redeploy matchmaker stack to recreate ECS cluster
-        run: |
-          cd packages/drawvid-matchmaker/infra
-          npx cdk deploy --all --require-approval never
-        env:
-          GAME_KEY: cyberia
+          echo "Tasks stopped - Lambda will launch new tasks with new image from ECR"
 
       - name: Deployment summary
         run: |
           echo "✅ World server image built and pushed to ECR"
-          echo "✅ ECS cluster recreated with new image"
+          echo "✅ Existing ECS tasks stopped"
+          echo "✅ New tasks will launch automatically with new image"
           echo "Repository: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
 
   deployment-complete:
