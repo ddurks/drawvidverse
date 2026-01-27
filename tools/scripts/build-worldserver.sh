@@ -26,16 +26,16 @@ pnpm build
 cd "$WORKSPACE_ROOT"
 
 # Build container image (from workspace root so Dockerfile can access workspace files)
-podman build -f packages/drawvid-worldserver/Dockerfile -t drawvidverse-worldserver:latest .
+docker build -f packages/drawvid-worldserver/Dockerfile -t drawvidverse-worldserver:latest .
 
 # Tag for ECR
-podman tag drawvidverse-worldserver:latest $REPO_URI:latest
+docker tag drawvidverse-worldserver:latest $REPO_URI:latest
 
 echo "Pushing to ECR..."
 # Get login token
-aws ecr get-login-password --region ${AWS_REGION:-us-east-2} | podman login --username AWS --password-stdin $REPO_URI
+aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin $REPO_URI
 
 # Push
-podman push $REPO_URI:latest
+docker push $REPO_URI:latest
 
 echo "Done! Image pushed to $REPO_URI:latest"

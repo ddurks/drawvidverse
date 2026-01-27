@@ -131,6 +131,11 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 8
+
       - name: Build world server image
         run: |
           ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
