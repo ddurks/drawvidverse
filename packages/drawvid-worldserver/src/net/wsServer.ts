@@ -35,6 +35,19 @@ export function createWSServer(config: ServerConfig, world: World): WebSocketSer
     perMessageDeflate: false, // Disable compression for better Safari compatibility
     clientTracking: true,
     maxPayload: 10 * 1024 * 1024, // 10MB
+    verifyClient: (info, callback) => {
+      // Handle WebSocket subprotocol negotiation for Chrome/Safari compatibility
+      const requestedProtocols = info.req.headers['sec-websocket-protocol'];
+      if (requestedProtocols) {
+        // Echo back the first protocol (ignore any tokens sent as secondary protocols)
+        const protocols = requestedProtocols.split(',');
+        const firstProtocol = protocols[0].trim();
+        logger.info({ protocols: requestedProtocols, echoing: firstProtocol }, 'Subprotocol negotiation');
+        callback(true, firstProtocol);
+      } else {
+        callback(true);
+      }
+    },
   });
 
   logger.info({ port: config.gameConfig.worldServer.port, host: '0.0.0.0' }, 'WebSocket server listening (TLS handled by NLB)');
