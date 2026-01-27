@@ -43,7 +43,8 @@ export function createWSServer(config: ServerConfig, world: World): WebSocketSer
         const protocols = requestedProtocols.split(',');
         const firstProtocol = protocols[0].trim();
         logger.info({ protocols: requestedProtocols, echoing: firstProtocol }, 'Subprotocol negotiation');
-        callback(true, firstProtocol);
+        // Pass the selected protocol in response headers
+        callback(true, undefined, undefined, { 'Sec-WebSocket-Protocol': firstProtocol });
       } else {
         callback(true);
       }
