@@ -500,5 +500,10 @@ export class MatchmakerStack extends cdk.Stack {
       value: table.tableName,
       description: 'DynamoDB table name for worlds',
     });
+
+    new cdk.CfnOutput(this, 'WorldServerTargetGroupArn', {
+      value: worldServerTargetGroup.targetGroupArn,
+      description: 'NLB Target Group ARN for world server tasks',
+    });
   }
 }
