@@ -7,18 +7,17 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "pnpm -r build",
-    "test": "pnpm -r test",
-    "lint": "pnpm -r lint",
-    "dev:worldserver": "pnpm --filter drawvid-worldserver dev",
-    "dev:matchmaker": "pnpm --filter drawvid-matchmaker dev",
-    "deploy:matchmaker": "pnpm --filter drawvid-matchmaker deploy"
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "lint": "npm run lint --workspaces",
+    "dev:worldserver": "npm run dev --workspace=drawvid-worldserver",
+    "dev:matchmaker": "npm run dev --workspace=drawvid-matchmaker",
+    "deploy:matchmaker": "npm run deploy --workspace=drawvid-matchmaker"
   },
   "engines": {
     "node": ">=20.0.0",
-    "pnpm": ">=8.0.0"
+    "npm": ">=10.0.0"
   },
-  "packageManager": "pnpm@8.15.0",
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.975.0",
     "ws": "^8.19.0"
