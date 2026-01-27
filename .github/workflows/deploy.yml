@@ -183,6 +183,23 @@ jobs:
         run: |
           ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
 
+      - name: Stop ECS tasks to pick up new image
+        run: |
+          CLUSTER="drawvidverse-cluster"
+          REGION="${{ env.AWS_REGION }}"
+          
+          echo "Stopping all running ECS tasks..."
+          TASKS=$(aws ecs list-tasks --cluster $CLUSTER --region $REGION --desired-status RUNNING --output text --query 'taskArns[]' 2>/dev/null || echo "")
+          if [ -n "$TASKS" ]; then
+            for TASK in $TASKS; do
+              echo "Stopping $TASK"
+              aws ecs stop-task --cluster $CLUSTER --task $TASK --region $REGION 2>/dev/null || true
+            done
+            echo "Tasks stopped"
+          else
+            echo "No running tasks found"
+          fi
+
       - name: Clean up stale world records from DynamoDB
         run: |
           STACK_NAME="DrawvidVerseMatchmakerStack"
@@ -227,29 +244,14 @@ jobs:
           
           echo "DynamoDB cleanup complete"
 
-      - name: Stop ECS tasks to pick up new image
-        run: |
-          CLUSTER="drawvidverse-cluster"
-          REGION="${{ env.AWS_REGION }}"
-          
-          echo "Stopping all running ECS tasks..."
-          TASKS=$(aws ecs list-tasks --cluster $CLUSTER --region $REGION --desired-status RUNNING --output text --query 'taskArns[]' 2>/dev/null || echo "")
-          if [ -n "$TASKS" ]; then
-            for TASK in $TASKS; do
-              echo "Stopping $TASK"
-              aws ecs stop-task --cluster $CLUSTER --task $TASK --region $REGION 2>/dev/null || true
-            done
-            echo "Tasks stopped - Lambda will restart them with new image from ECR"
-          else
-            echo "No running tasks found"
-          fi
-
       - name: Deployment summary
         run: |
           echo "✅ World server image built and pushed to ECR"
+          echo "✅ ECS tasks stopped"
           echo "✅ Stale world records cleaned from DynamoDB"
-          echo "✅ ECS tasks stopped - will restart with new image"
+          echo "✅ Lambda will restart tasks with new image"
           echo "Repository: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
+
 
 
 
