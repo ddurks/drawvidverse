@@ -97,9 +97,9 @@ export const JoinMessageSchema = z.object({
   t: z.literal('join'),
   name: z.string().optional(),
   coatColor: z.object({
-    r: z.number(),
-    g: z.number(),
-    b: z.number(),
+    r: z.number().int().min(0).max(255),
+    g: z.number().int().min(0).max(255),
+    b: z.number().int().min(0).max(255),
   }).optional(),
 });
 
