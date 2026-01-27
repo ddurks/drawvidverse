@@ -2,7 +2,7 @@ import { ECSClient, StopTaskCommand } from '@aws-sdk/client-ecs';
 import { getIdleWorlds, updateWorldToStopped } from '../shared/ddb.js';
 
 const ecsClient = new ECSClient({});
-const IDLE_TIMEOUT_MINUTES = 10;
+const IDLE_TIMEOUT_MINUTES = 5; // World server sends heartbeats every 2 minutes
 
 export const handler = async (): Promise<void> => {
   console.log('[cleanup] Running idle world cleanup...');

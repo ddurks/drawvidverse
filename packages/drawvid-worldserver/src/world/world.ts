@@ -35,6 +35,7 @@ export class World {
   private tickInterval?: NodeJS.Timeout;
   private snapshotInterval?: NodeJS.Timeout;
   private emptyCheckInterval?: NodeJS.Timeout;
+  private activityHeartbeatInterval?: NodeJS.Timeout;
 
   private currentTick = 0;
   private bootstrapLoaded = false;
@@ -65,6 +66,9 @@ export class World {
 
     // Start empty check for scale-to-zero
     this.startEmptyCheck();
+
+    // Start activity heartbeat to prevent premature cleanup
+    this.startActivityHeartbeat();
   }
 
   async shutdown(): Promise<void> {
@@ -76,6 +80,9 @@ export class World {
     }
     if (this.emptyCheckInterval) {
       clearInterval(this.emptyCheckInterval);
+    }
+    if (this.activityHeartbeatInterval) {
+      clearInterval(this.activityHeartbeatInterval);
     }
 
     for (const player of this.players.values()) {
@@ -312,6 +319,20 @@ export class World {
     this.emptyCheckInterval = setInterval(() => {
       this.checkEmptyShutdown();
     }, 5000); // Check every 5 seconds
+  }
+
+  private startActivityHeartbeat(): void {
+    // Update DynamoDB activity timestamp every 2 minutes to prevent idle cleanup
+    this.activityHeartbeatInterval = setInterval(async () => {
+      if (this.players.size > 0 && this.store.updateActivity) {
+        try {
+          await this.store.updateActivity();
+          logger.debug({ playerCount: this.players.size }, 'Activity heartbeat sent');
+        } catch (error) {
+          logger.error({ error }, 'Failed to send activity heartbeat');
+        }
+      }
+    }, 2 * 60 * 1000); // Every 2 minutes
   }
 
   private async checkEmptyShutdown(): Promise<void> {

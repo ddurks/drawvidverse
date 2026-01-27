@@ -12,7 +12,7 @@ export function createWorldStore(config: ServerConfig): WorldStore {
     throw new Error('DynamoDB mode requires DDB_TABLE and AWS_REGION');
   }
 
-  return new DDBWorldStore(config.awsRegion, config.ddbTable);
+  return new DDBWorldStore(config.awsRegion, config.ddbTable, config.gameKey, config.worldId);
 }
 
 export * from './worldStore';

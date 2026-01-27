@@ -1,16 +1,20 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { WorldStore } from './worldStore';
 import { WorldBootstrapPayload } from '../../net/messages';
 
 export class DDBWorldStore implements WorldStore {
   private client: DynamoDBDocumentClient;
   private tableName: string;
+  private gameKey: string;
+  private worldId: string;
 
-  constructor(region: string, tableName: string) {
+  constructor(region: string, tableName: string, gameKey: string, worldId: string) {
     const ddbClient = new DynamoDBClient({ region });
     this.client = DynamoDBDocumentClient.from(ddbClient);
     this.tableName = tableName;
+    this.gameKey = gameKey;
+    this.worldId = worldId;
   }
 
   async getBootstrap(worldId: string): Promise<WorldBootstrapPayload | null> {
@@ -52,5 +56,22 @@ export class DDBWorldStore implements WorldStore {
       }
       throw error;
     }
+  }
+
+  async updateActivity(): Promise<void> {
+    const now = new Date().toISOString();
+    await this.client.send(
+      new UpdateCommand({
+        TableName: this.tableName,
+        Key: {
+          pk: `WORLD#${this.gameKey}#${this.worldId}`,
+          sk: 'META',
+        },
+        UpdateExpression: 'SET lastActivityTime = :now, updatedAt = :now',
+        ExpressionAttributeValues: {
+          ':now': now,
+        },
+      })
+    );
   }
 }
