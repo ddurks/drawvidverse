@@ -4,6 +4,28 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      deploy-matchmaker:
+        description: "Deploy Matchmaker backend"
+        required: false
+        default: "false"
+        type: boolean
+      deploy-worldserver:
+        description: "Deploy World Server"
+        required: false
+        default: "false"
+        type: boolean
+      deploy-frontend:
+        description: "Deploy Frontend"
+        required: false
+        default: "false"
+        type: boolean
+      deploy-all:
+        description: "Deploy everything (overrides individual selections)"
+        required: false
+        default: "false"
+        type: boolean
 
 env:
   AWS_REGION: us-east-2
@@ -28,6 +50,25 @@ jobs:
       - name: Detect changes
         id: changes
         run: |
+          # If manually triggered with deploy-all flag, deploy everything
+          if [ "${{ github.event.inputs.deploy-all }}" == "true" ]; then
+            echo "matchmaker=true" >> $GITHUB_OUTPUT
+            echo "worldserver=true" >> $GITHUB_OUTPUT
+            echo "frontend=true" >> $GITHUB_OUTPUT
+            echo "Manual trigger: Deploying all components"
+            exit 0
+          fi
+          
+          # If manually triggered, use selected inputs
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "matchmaker=${{ github.event.inputs.deploy-matchmaker }}" >> $GITHUB_OUTPUT
+            echo "worldserver=${{ github.event.inputs.deploy-worldserver }}" >> $GITHUB_OUTPUT
+            echo "frontend=${{ github.event.inputs.deploy-frontend }}" >> $GITHUB_OUTPUT
+            echo "Manual trigger: Deploying selected components"
+            exit 0
+          fi
+          
+          # Otherwise detect changes from git
           # Get the list of changed files
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD)
