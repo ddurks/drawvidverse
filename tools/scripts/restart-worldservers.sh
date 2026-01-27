@@ -16,13 +16,18 @@ done
 
 echo "ECS tasks stop requested."
 
-# Get the table name from CloudFormation stack output
 STACK_NAME="DrawvidVerseMatchmakerStack"
 TABLE_NAME=$(aws cloudformation describe-stacks \
   --stack-name $STACK_NAME \
   --region $REGION \
   --query "Stacks[0].Outputs[?OutputKey=='WorldsTableName'].OutputValue" \
   --output text)
+
+if [ -z "$TABLE_NAME" ]; then
+  echo "ERROR: DynamoDB table name not found in CloudFormation outputs."
+  echo "Check that your stack outputs WorldsTableName and that the stack name/region are correct."
+  exit 1
+fi
 
 echo "Using DynamoDB table: $TABLE_NAME"
 

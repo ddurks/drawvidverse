@@ -495,5 +495,10 @@ export class MatchmakerStack extends cdk.Stack {
       value: 'https://cyberia.drawvid.com',
       description: 'Frontend URL (served via S3 website endpoint)',
     });
+
+    new cdk.CfnOutput(this, 'WorldsTableName', {
+      value: table.tableName,
+      description: 'DynamoDB table name for worlds',
+    });
   }
 }
