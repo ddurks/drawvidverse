@@ -3,26 +3,16 @@ name: Deploy to Production
 on:
   workflow_dispatch:
     inputs:
-      deploy-matchmaker:
-        description: "Deploy Matchmaker backend"
+      mode:
+        description: "Deployment mode (select one)"
         required: false
-        default: "false"
-        type: boolean
-      deploy-worldserver:
-        description: "Deploy World Server"
-        required: false
-        default: "false"
-        type: boolean
-      deploy-all:
-        description: "Deploy everything (overrides individual selections)"
-        required: false
-        default: "false"
-        type: boolean
-      destroy-infrastructure:
-        description: "⚠️ DESTROY infrastructure (cannot be undone!)"
-        required: false
-        default: "false"
-        type: boolean
+        type: choice
+        default: "auto"
+        options:
+          - auto
+          - deploy-all
+          - deploy-worldserver
+          - destroy-infrastructure
 
 env:
   AWS_REGION: us-east-2
@@ -46,28 +36,35 @@ jobs:
       - name: Detect changes
         id: changes
         run: |
-          # If manually triggered with deploy-all flag, deploy everything
-          if [ "${{ github.event.inputs.deploy-all }}" == "true" ]; then
+          MODE="${{ github.event.inputs.mode }}"
+          
+          # Handle manual deployment modes
+          if [ "$MODE" = "deploy-all" ]; then
             echo "matchmaker=true" >> $GITHUB_OUTPUT
             echo "worldserver=true" >> $GITHUB_OUTPUT
-            echo "frontend=true" >> $GITHUB_OUTPUT
-            echo "Manual trigger: Deploying all components"
+            echo "Manual mode: Deploying all infrastructure and code"
             exit 0
           fi
-
-          # If manually triggered, use selected inputs
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "matchmaker=${{ github.event.inputs.deploy-matchmaker }}" >> $GITHUB_OUTPUT
-            echo "worldserver=${{ github.event.inputs.deploy-worldserver }}" >> $GITHUB_OUTPUT
-            echo "frontend=${{ github.event.inputs.deploy-frontend }}" >> $GITHUB_OUTPUT
-            echo "Manual trigger: Deploying selected components"
+          
+          if [ "$MODE" = "deploy-worldserver" ]; then
+            echo "matchmaker=false" >> $GITHUB_OUTPUT
+            echo "worldserver=true" >> $GITHUB_OUTPUT
+            echo "Manual mode: Deploying world server only"
             exit 0
           fi
-
-          # Otherwise detect changes from git
-          # Get the list of changed files
+          
+          if [ "$MODE" = "destroy-infrastructure" ]; then
+            echo "matchmaker=false" >> $GITHUB_OUTPUT
+            echo "worldserver=false" >> $GITHUB_OUTPUT
+            echo "Manual mode: Infrastructure destruction triggered separately"
+            exit 0
+          fi
+          
+          # Auto mode (default): detect changes from git
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD)
+          elif [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "$MODE" = "auto" ]; then
+            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
           else
             # For push events, compare with previous commit
             CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
@@ -79,7 +76,6 @@ jobs:
           # Check which components changed
           MATCHMAKER_CHANGED=false
           WORLDSERVER_CHANGED=false
-          FRONTEND_CHANGED=false
 
           if echo "$CHANGED_FILES" | grep -qE "^packages/drawvid-matchmaker/|^games/"; then
             MATCHMAKER_CHANGED=true
@@ -89,17 +85,11 @@ jobs:
             WORLDSERVER_CHANGED=true
           fi
 
-          if echo "$CHANGED_FILES" | grep -qE "^cyberia/"; then
-            FRONTEND_CHANGED=true
-          fi
-
           echo "matchmaker=$MATCHMAKER_CHANGED" >> $GITHUB_OUTPUT
           echo "worldserver=$WORLDSERVER_CHANGED" >> $GITHUB_OUTPUT
-          echo "frontend=$FRONTEND_CHANGED" >> $GITHUB_OUTPUT
 
           echo "Matchmaker changed: $MATCHMAKER_CHANGED"
           echo "World server changed: $WORLDSERVER_CHANGED"
-          echo "Frontend changed: $FRONTEND_CHANGED"
 
   deploy-matchmaker:
     name: Deploy Matchmaker
@@ -286,7 +276,7 @@ jobs:
   destroy-infrastructure:
     name: Destroy Infrastructure
     runs-on: ubuntu-latest
-    if: github.event.inputs.destroy-infrastructure == 'true'
+    if: github.event.inputs.mode == 'destroy-infrastructure'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
