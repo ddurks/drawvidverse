@@ -134,6 +134,12 @@ jobs:
         run: |
           cd packages/drawvid-matchmaker
           npm run build
+          npm run bundle-lambdas
+
+      - name: Build CDK infrastructure
+        run: |
+          cd packages/drawvid-matchmaker/infra
+          npm run build
 
       - name: Deploy matchmaker stack
         run: |
