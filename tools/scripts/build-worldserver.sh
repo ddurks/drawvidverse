@@ -20,7 +20,7 @@ cd "$WORKSPACE_ROOT"
 
 # Build TypeScript
 cd packages/drawvid-worldserver
-pnpm build
+npm run build
 
 # Go back to workspace root for Docker build
 cd "$WORKSPACE_ROOT"
