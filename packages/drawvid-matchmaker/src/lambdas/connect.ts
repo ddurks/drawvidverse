@@ -14,9 +14,20 @@ export const handler = async (
     await saveConnection(connectionId);
     console.log('[CONNECT] Connection saved successfully');
 
-    // Return 200 to allow the connection
-    const response = { statusCode: 200 };
-    console.log('[CONNECT] Returning response:', JSON.stringify(response));
+    // Echo back Sec-WebSocket-Protocol if present
+    let response: APIGatewayProxyResultV2 = { statusCode: 200 };
+    const subprotocol = event.headers && event.headers['sec-websocket-protocol'];
+    if (subprotocol) {
+      response = {
+        statusCode: 200,
+        headers: {
+          'Sec-WebSocket-Protocol': subprotocol
+        }
+      };
+      console.log('[CONNECT] Returning response: ', JSON.stringify(response), ' with subprotocol:', subprotocol);
+    } else {
+      console.log('[CONNECT] Returning response without subprotocol');
+    }
     return response;
   } catch (error) {
     console.error('[CONNECT] Error:', error);
