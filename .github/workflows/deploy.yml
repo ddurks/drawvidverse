@@ -187,6 +187,7 @@ jobs:
         run: |
           CLUSTER="drawvidverse-cluster"
           REGION="${{ env.AWS_REGION }}"
+          STACK_NAME="DrawvidVerseMatchmakerStack"
 
           echo "Stopping all running ECS tasks..."
           TASKS=$(aws ecs list-tasks --cluster $CLUSTER --region $REGION --desired-status RUNNING --output text --query 'taskArns[]' 2>/dev/null || echo "")
@@ -201,7 +202,13 @@ jobs:
           echo "Deleting ECS cluster (next CDK deploy will recreate it)..."
           aws ecs delete-cluster --cluster $CLUSTER --region $REGION 2>/dev/null || echo "Cluster already deleted or does not exist"
 
-          echo "Cluster will be recreated on next CDK deploy with new world server image"
+          echo "Deleting CloudFormation stack to force fresh CDK deploy..."
+          aws cloudformation delete-stack --stack-name $STACK_NAME --region $REGION 2>/dev/null || echo "Stack deletion initiated"
+          
+          echo "Waiting for stack deletion..."
+          aws cloudformation wait stack-delete-complete --stack-name $STACK_NAME --region $REGION 2>/dev/null || echo "Stack already deleted"
+          
+          echo "Stack and cluster cleared - ready for fresh CDK deploy"
 
       - name: Build matchmaker for CDK deploy
         run: |
