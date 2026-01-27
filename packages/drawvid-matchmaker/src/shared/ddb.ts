@@ -5,6 +5,7 @@ import {
   PutCommand,
   UpdateCommand,
   DeleteCommand,
+  ScanCommand,
 } from '@aws-sdk/lib-dynamodb';
 
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -23,6 +24,7 @@ export interface WorldItem {
   revision: number;
   createdAt: string;
   updatedAt: string;
+  lastActivityTime?: string; // Track when the world was last active (for idle cleanup)
   errorReason?: string;
 }
 
@@ -129,6 +131,7 @@ export async function updateWorldToRunning(
   publicIp: string,
   port: number
 ): Promise<void> {
+  const now = new Date().toISOString();
   await client.send(
     new UpdateCommand({
       TableName: TABLE_NAME,
@@ -137,7 +140,7 @@ export async function updateWorldToRunning(
         sk: 'META',
       },
       UpdateExpression:
-        'SET #status = :running, publicIp = :ip, port = :port, updatedAt = :now',
+        'SET #status = :running, publicIp = :ip, port = :port, updatedAt = :now, lastActivityTime = :activityTime',
       ExpressionAttributeNames: {
         '#status': 'status',
       },
@@ -145,7 +148,8 @@ export async function updateWorldToRunning(
         ':running': 'RUNNING',
         ':ip': publicIp,
         ':port': port,
-        ':now': new Date().toISOString(),
+        ':now': now,
+        ':activityTime': now,
       },
     })
   );
@@ -235,6 +239,92 @@ export async function deleteConnection(connectionId: string): Promise<void> {
       Key: {
         pk: `CONN#${connectionId}`,
         sk: 'META',
+      },
+    })
+  );
+}
+
+export async function getIdleWorlds(idleTimeoutMinutes: number = 10): Promise<WorldItem[]> {
+  // Scan for RUNNING worlds that haven't had activity in the last N minutes
+  const idleThresholdMs = idleTimeoutMinutes * 60 * 1000;
+  const now = Date.now();
+
+  // This is a simple scan - in production you'd want a GSI for efficiency
+  const result = await client.send(
+    new ScanCommand({
+      TableName: TABLE_NAME,
+      FilterExpression: '#status = :running',
+      ExpressionAttributeNames: {
+        '#status': 'status',
+      },
+      ExpressionAttributeValues: {
+        ':running': 'RUNNING',
+      },
+    })
+  );
+
+  const idleWorlds: WorldItem[] = [];
+
+  if (result.Items) {
+    for (const item of result.Items as WorldItem[]) {
+      // Skip items that aren't world metadata
+      if (!item.worldId) continue;
+
+      const lastActivity = item.lastActivityTime ? new Date(item.lastActivityTime).getTime() : 0;
+      const timeSinceActivity = now - lastActivity;
+
+      if (timeSinceActivity > idleThresholdMs) {
+        idleWorlds.push(item);
+      }
+    }
+  }
+
+  return idleWorlds;
+}
+
+export async function updateWorldToStopped(
+  gameKey: string,
+  worldId: string,
+  reason: string
+): Promise<void> {
+  await client.send(
+    new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: {
+        pk: makeWorldKey(gameKey, worldId),
+        sk: 'META',
+      },
+      UpdateExpression:
+        'SET #status = :stopped, updatedAt = :now, taskArn = :null, errorReason = :reason',
+      ExpressionAttributeNames: {
+        '#status': 'status',
+      },
+      ExpressionAttributeValues: {
+        ':stopped': 'STOPPED',
+        ':now': new Date().toISOString(),
+        ':null': null,
+        ':reason': reason,
+      },
+    })
+  );
+}
+
+export async function updateWorldActivity(
+  gameKey: string,
+  worldId: string
+): Promise<void> {
+  const now = new Date().toISOString();
+  await client.send(
+    new UpdateCommand({
+      TableName: TABLE_NAME,
+      Key: {
+        pk: makeWorldKey(gameKey, worldId),
+        sk: 'META',
+      },
+      UpdateExpression:
+        'SET lastActivityTime = :now, updatedAt = :now',
+      ExpressionAttributeValues: {
+        ':now': now,
       },
     })
   );

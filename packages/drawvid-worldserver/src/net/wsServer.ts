@@ -27,6 +27,8 @@ const RATE_LIMITS = {
 };
 
 export function createWSServer(config: ServerConfig, world: World): WebSocketServer {
+  // NLB handles TLS termination, so we just use plain WebSocket
+  // The browser connects to wss://world.drawvid.com:443 which the NLB forwards to our plain WS on :7777
   const wss = new WebSocketServer({
     port: config.gameConfig.worldServer.port,
     host: '0.0.0.0',
@@ -35,13 +37,15 @@ export function createWSServer(config: ServerConfig, world: World): WebSocketSer
     maxPayload: 10 * 1024 * 1024, // 10MB
   });
 
-  logger.info({ port: config.gameConfig.worldServer.port, host: '0.0.0.0' }, 'WebSocket server listening');
+  logger.info({ port: config.gameConfig.worldServer.port, host: '0.0.0.0' }, 'WebSocket server listening (TLS handled by NLB)');
 
   wss.on('connection', (ws: WebSocket, req) => {
     const clientIp = req.socket.remoteAddress;
     const userAgent = req.headers['user-agent'] || 'unknown';
     const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
-    logger.info({ clientIp, userAgent, isIOS, headers: req.headers }, 'WebSocket connection established');
+    
+    logger.info({ clientIp, userAgent, isIOS }, 'New WebSocket connection received');
+    logger.info({ clientIp, userAgent, isIOS, headers: req.headers }, 'WebSocket connection established - new client connecting');
     const connId = generateConnectionId();
     const state: ConnectionState = {
       id: connId,
@@ -68,7 +72,11 @@ export function createWSServer(config: ServerConfig, world: World): WebSocketSer
     ws.on('message', async (data: Buffer) => {
       try {
         const raw = data.toString();
+        logger.info({ connId, rawMessage: raw }, 'Received raw message from client');
+        
         const parsed = JSON.parse(raw);
+        logger.info({ connId, parsedMessage: JSON.stringify(parsed) }, 'Parsed message');
+        
         const message = ClientMessageSchema.parse(parsed);
 
         // Rate limiting
@@ -82,7 +90,7 @@ export function createWSServer(config: ServerConfig, world: World): WebSocketSer
 
         await handleMessage(ws, state, message, config, world);
       } catch (error) {
-        logger.warn({ connId, error }, 'Invalid message');
+        logger.warn({ connId, error, rawData: data.toString() }, 'Invalid message');
         sendError(ws, 'INVALID_MESSAGE', 'Invalid message format');
       }
     });
@@ -189,8 +197,29 @@ async function handleAuth(
     }
 
     const decoded = verify(token, config.jwtSecret) as any;
+    
+    logger.info({
+      connId: state.id,
+      token: token.substring(0, 50) + '...',
+      decodedToken: JSON.stringify(decoded),
+      decodedWorldId: decoded.worldId,
+      configWorldId: config.worldId,
+      decodedGameKey: decoded.gameKey,
+      configGameKey: config.gameKey,
+      worldIdMatch: decoded.worldId === config.worldId,
+      gameKeyMatch: decoded.gameKey === config.gameKey,
+    }, 'Token decoded and validation check');
 
     if (decoded.worldId !== config.worldId || decoded.gameKey !== config.gameKey) {
+      logger.warn({
+        connId: state.id,
+        decodedWorldId: decoded.worldId,
+        configWorldId: config.worldId,
+        decodedGameKey: decoded.gameKey,
+        configGameKey: config.gameKey,
+        worldIdMatch: decoded.worldId === config.worldId,
+        gameKeyMatch: decoded.gameKey === config.gameKey,
+      }, 'Token validation failed - worldId or gameKey mismatch');
       sendError(ws, 'INVALID_TOKEN', 'Token not valid for this world');
       ws.close();
       return;

@@ -31,8 +31,8 @@ export class Server {
     this.world = new World(this.config, worldStore);
     await this.world.init();
 
-    // Start WebSocket server
-    this.wss = createWSServer(this.config, this.world);
+    // Start WebSocket server (async - loads certs from Secrets Manager)
+    this.wss = await createWSServer(this.config, this.world);
 
     logger.info(
       { port: this.config.gameConfig.worldServer.port },

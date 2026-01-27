@@ -5,7 +5,10 @@ import { MatchmakerStack } from '../lib/matchmaker-stack';
 
 const app = new cdk.App();
 
-new MatchmakerStack(app, 'DrawvidVerseMatchmakerStack', {
+// Get game key from context or default to 'cyberia'
+const gameKey = app.node.tryGetContext('gameKey') || 'cyberia';
+
+new MatchmakerStack(app, 'DrawvidVerseMatchmakerStack', gameKey, {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION || 'us-east-2',

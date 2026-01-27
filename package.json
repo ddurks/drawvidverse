@@ -20,6 +20,7 @@
   },
   "packageManager": "pnpm@8.15.0",
   "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.975.0",
     "ws": "^8.19.0"
   }
 }

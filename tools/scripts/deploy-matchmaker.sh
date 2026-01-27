@@ -1,27 +1,46 @@
 #!/usr/bin/env bash
-# Deploy matchmaker CDK stack
+# Deploy matchmaker backend via CDK
+#
+# This script builds the matchmaker TypeScript code and deploys the CDK stack,
+# which includes:
+#   - DynamoDB table for world state
+#   - API Gateway WebSocket for matchmaker communication
+#   - Lambda functions (connect, disconnect, join, create world, etc)
+#   - ECS cluster for world server tasks
+#   - NLB for world server routing
+#   - IAM roles and security groups
+#
+# Usage:
+#   ./tools/scripts/deploy-matchmaker.sh
+#
+# Outputs:
+#   - WebSocket URL: wss://matchmaker.drawvid.com/
+#   - World Server URL: wss://world.drawvid.com:443
+#   - DynamoDB table name
+#   - ECS cluster ARN
 
 set -e
 
-GAME_KEY=${1:-cyberia}
+WORKSPACE_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-echo "Deploying matchmaker for game: $GAME_KEY"
+echo "================================"
+echo "🚀 Deploying Matchmaker Backend"
+echo "================================"
 
-cd packages/drawvid-matchmaker
-
-# Build Lambda code
-echo "Building Lambda handlers..."
-pnpm build
-
-# Deploy CDK
-echo "Deploying CDK stack..."
-cd infra
-pnpm install
-cdk deploy --require-approval never
-
-echo "Deployment complete!"
+# Step 1: Build TypeScript
 echo ""
-echo "Next steps:"
-echo "1. Build and push world server image:"
-echo "   ./tools/scripts/build-worldserver.sh <ecr-repo-uri>"
-echo "2. Connect to WebSocket API URL (see outputs above)"
+echo "📦 Building TypeScript..."
+cd "$WORKSPACE_ROOT"
+npm run build
+
+# Step 2: Deploy CDK
+echo ""
+echo "🚀 Deploying CDK stack..."
+cd "$WORKSPACE_ROOT/packages/drawvid-matchmaker/infra"
+npx cdk deploy --all --require-approval never
+
+echo ""
+echo "✅ Matchmaker backend deployed!"
+echo ""
+echo "Next: Deploy world server image"
+echo "  ./tools/scripts/build-worldserver.sh <ecr-repo-uri>"

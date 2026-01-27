@@ -20,7 +20,4 @@ echo ""
 echo "✅ Services running (Ctrl+C to stop)"
 echo "   World Server PID: $WORLD_PID"
 echo "   Frontend PID: $FE_PID"
-echo ""
-echo "🌐 Open in browser: http://localhost:3000"
-echo ""
 wait
