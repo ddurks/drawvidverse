@@ -1,0 +1,11 @@
+{
+  "availability-zones:account=593615615124:region=us-east-2": [
+    "us-east-2a",
+    "us-east-2b",
+    "us-east-2c"
+  ],
+  "hosted-zone:account=593615615124:domainName=drawvid.com:region=us-east-2": {
+    "Id": "/hostedzone/Z6OEJ6TI3FSOM",
+    "Name": "drawvid.com."
+  }
+}

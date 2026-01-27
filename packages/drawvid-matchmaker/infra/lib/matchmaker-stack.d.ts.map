@@ -1,0 +1,1 @@
+{"version":3,"file":"matchmaker-stack.d.ts","sourceRoot":"","sources":["matchmaker-stack.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,GAAG,MAAM,aAAa,CAAC;AAYnC,OAAO,EAAE,SAAS,EAAE,MAAM,YAAY,CAAC;AAGvC,qBAAa,eAAgB,SAAQ,GAAG,CAAC,KAAK;gBAChC,KAAK,EAAE,SAAS,EAAE,EAAE,EAAE,MAAM,EAAE,KAAK,CAAC,EAAE,GAAG,CAAC,UAAU;CA2TjE"}
