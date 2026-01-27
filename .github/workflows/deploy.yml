@@ -183,6 +183,50 @@ jobs:
         run: |
           ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
 
+      - name: Clean up stale world records from DynamoDB
+        run: |
+          STACK_NAME="DrawvidVerseMatchmakerStack"
+          REGION="${{ env.AWS_REGION }}"
+          
+          echo "Getting DynamoDB table name from CloudFormation..."
+          TABLE_NAME=$(aws cloudformation describe-stacks \
+            --stack-name $STACK_NAME \
+            --region $REGION \
+            --query 'Stacks[0].Outputs[?OutputKey==`WorldsTableName`].OutputValue' \
+            --output text 2>/dev/null)
+          
+          if [ -z "$TABLE_NAME" ]; then
+            echo "Could not find table name, skipping DynamoDB cleanup"
+            exit 0
+          fi
+          
+          echo "Cleaning up world records from table: $TABLE_NAME"
+          
+          # Query for all world items (pk starts with "world_")
+          ITEMS=$(aws dynamodb query \
+            --table-name $TABLE_NAME \
+            --key-condition-expression "begins_with(pk, :pk)" \
+            --expression-attribute-values '{":pk":{"S":"world_"}}' \
+            --region $REGION \
+            --output json 2>/dev/null || echo '{"Items":[]}')
+          
+          # Delete each item
+          echo "$ITEMS" | jq -r '.Items[] | @base64' | while read item; do
+            DECODED=$(echo $item | base64 -d)
+            PK=$(echo "$DECODED" | jq -r '.pk.S')
+            SK=$(echo "$DECODED" | jq -r '.sk.S')
+            
+            if [ -n "$PK" ] && [ -n "$SK" ]; then
+              echo "Deleting world record: $PK / $SK"
+              aws dynamodb delete-item \
+                --table-name $TABLE_NAME \
+                --key "{\"pk\":{\"S\":\"$PK\"},\"sk\":{\"S\":\"$SK\"}}" \
+                --region $REGION 2>/dev/null || true
+            fi
+          done
+          
+          echo "DynamoDB cleanup complete"
+
       - name: Stop ECS tasks to pick up new image
         run: |
           CLUSTER="drawvidverse-cluster"
@@ -203,8 +247,10 @@ jobs:
       - name: Deployment summary
         run: |
           echo "✅ World server image built and pushed to ECR"
+          echo "✅ Stale world records cleaned from DynamoDB"
           echo "✅ ECS tasks stopped - will restart with new image"
           echo "Repository: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
+
 
 
   deployment-complete:
