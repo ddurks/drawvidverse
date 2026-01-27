@@ -175,16 +175,38 @@ jobs:
         run: |
           ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
 
-      - name: Stop all running world server ECS tasks and clean up DynamoDB
+      - name: Delete ECS cluster to force recreation with new image
         run: |
-          chmod +x ./tools/scripts/restart-worldservers.sh
-          ./tools/scripts/restart-worldservers.sh
+          CLUSTER="drawvidverse-cluster"
+          REGION="${{ env.AWS_REGION }}"
+
+          echo "Stopping all running ECS tasks..."
+          TASKS=$(aws ecs list-tasks --cluster $CLUSTER --region $REGION --desired-status RUNNING --output text --query 'taskArns[]' 2>/dev/null || echo "")
+          for TASK in $TASKS; do
+            echo "Stopping $TASK"
+            aws ecs stop-task --cluster $CLUSTER --task $TASK --region $REGION 2>/dev/null || true
+          done
+
+          echo "Waiting 15 seconds for tasks to stop..."
+          sleep 15
+
+          echo "Deleting ECS cluster (next CDK deploy will recreate it)..."
+          aws ecs delete-cluster --cluster $CLUSTER --region $REGION 2>/dev/null || echo "Cluster already deleted or does not exist"
+
+          echo "Cluster will be recreated on next CDK deploy with new world server image"
+
+      - name: Redeploy matchmaker stack to recreate ECS cluster
+        run: |
+          cd packages/drawvid-matchmaker/infra
+          npx cdk deploy --all --require-approval never
+        env:
+          GAME_KEY: cyberia
 
       - name: Deployment summary
         run: |
           echo "✅ World server image built and pushed to ECR"
+          echo "✅ ECS cluster recreated with new image"
           echo "Repository: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
-          echo "Note: ECS will automatically use the new image on next task launch"
 
   deployment-complete:
     name: Deployment Complete
