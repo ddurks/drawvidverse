@@ -1,6 +1,7 @@
 import { APIGatewayProxyResultV2 } from 'aws-lambda';
 import { saveConnection } from '../shared/ddb.js';
 
+export const handler = async (
   event: any
 ): Promise<APIGatewayProxyResultV2> => {
   const connectionId = event.requestContext.connectionId;
