@@ -298,18 +298,21 @@ export class MatchmakerStack extends cdk.Stack {
     });
 
     // --- Escape hatch: inject requestTemplates for $connect route ---
-    const cfnConnectIntegration = webSocketApi.node.findChild('ConnectIntegration').node.defaultChild;
-    cfnConnectIntegration.requestTemplates = {
-      'application/json': `{
-        "headers": {
-          #foreach($header in $input.params().header.keySet())
-            "$header": "$util.escapeJavaScript($input.params().header.get($header))"#if($foreach.hasNext),#end
-          #end
-        },
-        "requestContext": $util.toJson($context.requestContext),
-        "isBase64Encoded": false
-      }`
-    };
+    const connectIntegrationConstruct = webSocketApi.node.tryFindChild('ConnectIntegration');
+    if (connectIntegrationConstruct && 'node' in connectIntegrationConstruct && connectIntegrationConstruct.node.defaultChild) {
+      const cfnConnectIntegration = connectIntegrationConstruct.node.defaultChild as apigatewayv2.CfnIntegration;
+      (cfnConnectIntegration as any).requestTemplates = {
+        'application/json': `{
+          "headers": {
+            #foreach($header in $input.params().header.keySet())
+              "$header": "$util.escapeJavaScript($input.params().header.get($header))"#if($foreach.hasNext),#end
+            #end
+          },
+          "requestContext": $util.toJson($context.requestContext),
+          "isBase64Encoded": false
+        }`
+      };
+    }
 
     // Add message routes
     webSocketApi.addRoute('createWorld', {
