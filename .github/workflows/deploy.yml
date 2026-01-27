@@ -183,29 +183,48 @@ jobs:
         run: |
           ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
 
-      - name: Stop existing ECS tasks to force new deployment with new image
+      - name: Delete and recreate infrastructure for clean world server deployment
         run: |
           CLUSTER="drawvidverse-cluster"
           REGION="${{ env.AWS_REGION }}"
+          STACK_NAME="DrawvidVerseMatchmakerStack"
 
           echo "Stopping all running ECS tasks..."
           TASKS=$(aws ecs list-tasks --cluster $CLUSTER --region $REGION --desired-status RUNNING --output text --query 'taskArns[]' 2>/dev/null || echo "")
-          if [ -z "$TASKS" ]; then
-            echo "No running tasks found"
-          else
+          if [ -n "$TASKS" ]; then
             for TASK in $TASKS; do
               echo "Stopping $TASK"
               aws ecs stop-task --cluster $CLUSTER --task $TASK --region $REGION 2>/dev/null || true
             done
           fi
 
-          echo "Tasks stopped - Lambda will launch new tasks with new image from ECR"
+          echo "Waiting 15 seconds for tasks to stop..."
+          sleep 15
+
+          echo "Deleting CloudFormation stack..."
+          aws cloudformation delete-stack --stack-name $STACK_NAME --region $REGION 2>/dev/null || echo "Stack deletion initiated"
+          
+          echo "Waiting for stack deletion..."
+          aws cloudformation wait stack-delete-complete --stack-name $STACK_NAME --region $REGION 2>/dev/null || true
+          
+          echo "Stack deleted - ready for fresh deployment"
+
+      - name: Build matchmaker for fresh CDK deploy
+        run: |
+          cd packages/drawvid-matchmaker
+          npm run build
+
+      - name: Deploy fresh matchmaker stack with new world server image
+        run: |
+          cd packages/drawvid-matchmaker/infra
+          npx cdk deploy --all --require-approval never
+        env:
+          GAME_KEY: cyberia
 
       - name: Deployment summary
         run: |
           echo "✅ World server image built and pushed to ECR"
-          echo "✅ Existing ECS tasks stopped"
-          echo "✅ New tasks will launch automatically with new image"
+          echo "✅ Infrastructure fully recreated and wired to NLB"
           echo "Repository: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
 
   deployment-complete:
