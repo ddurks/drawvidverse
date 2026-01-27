@@ -191,8 +191,16 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.frontend-changed == 'true'
     steps:
-      - name: Checkout code
+      - name: Checkout drawvidverse
         uses: actions/checkout@v4
+        with:
+          path: drawvidverse
+
+      - name: Checkout cyberia
+        uses: actions/checkout@v4
+        with:
+          repository: ddurks/cyberia
+          path: cyberia
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
@@ -213,7 +221,7 @@ jobs:
         run: npm run build --prefix cyberia
 
       - name: Deploy frontend
-        run: ./tools/scripts/deploy-frontend.sh
+        run: cd drawvidverse && ./tools/scripts/deploy-frontend.sh
 
       - name: Wait for CloudFront invalidation
         run: |
