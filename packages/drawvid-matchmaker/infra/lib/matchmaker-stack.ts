@@ -297,6 +297,20 @@ export class MatchmakerStack extends cdk.Stack {
       },
     });
 
+    // --- Escape hatch: inject requestTemplates for $connect route ---
+    const cfnConnectIntegration = webSocketApi.node.findChild('ConnectIntegration').node.defaultChild;
+    cfnConnectIntegration.requestTemplates = {
+      'application/json': `{
+        "headers": {
+          #foreach($header in $input.params().header.keySet())
+            "$header": "$util.escapeJavaScript($input.params().header.get($header))"#if($foreach.hasNext),#end
+          #end
+        },
+        "requestContext": $util.toJson($context.requestContext),
+        "isBase64Encoded": false
+      }`
+    };
+
     // Add message routes
     webSocketApi.addRoute('createWorld', {
       integration: new apigatewayv2Integrations.WebSocketLambdaIntegration(
