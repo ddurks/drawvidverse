@@ -153,8 +153,8 @@ jobs:
   deploy-worldserver:
     name: Deploy World Server
     runs-on: ubuntu-latest
-    needs: [detect-changes, destroy-infrastructure]
-    if: needs.detect-changes.outputs.worldserver-changed == 'true' && needs.destroy-infrastructure.result != 'failure'
+    needs: detect-changes
+    if: needs.detect-changes.outputs.worldserver-changed == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -183,28 +183,34 @@ jobs:
         run: |
           ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
 
-      - name: Build matchmaker for CDK deploy
+      - name: Stop ECS tasks to pick up new image
         run: |
-          cd packages/drawvid-matchmaker
-          npm run build
-
-      - name: Redeploy infrastructure with new world server image
-        run: |
-          cd packages/drawvid-matchmaker/infra
-          npx cdk deploy --all --require-approval never
-        env:
-          GAME_KEY: cyberia
+          CLUSTER="drawvidverse-cluster"
+          REGION="${{ env.AWS_REGION }}"
+          
+          echo "Stopping all running ECS tasks..."
+          TASKS=$(aws ecs list-tasks --cluster $CLUSTER --region $REGION --desired-status RUNNING --output text --query 'taskArns[]' 2>/dev/null || echo "")
+          if [ -n "$TASKS" ]; then
+            for TASK in $TASKS; do
+              echo "Stopping $TASK"
+              aws ecs stop-task --cluster $CLUSTER --task $TASK --region $REGION 2>/dev/null || true
+            done
+            echo "Tasks stopped - Lambda will restart them with new image from ECR"
+          else
+            echo "No running tasks found"
+          fi
 
       - name: Deployment summary
         run: |
           echo "✅ World server image built and pushed to ECR"
-          echo "✅ Infrastructure redeployed with new image"
+          echo "✅ ECS tasks stopped - will restart with new image"
           echo "Repository: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
+
 
   deployment-complete:
     name: Deployment Complete
     runs-on: ubuntu-latest
-    needs: [detect-changes, deploy-matchmaker, deploy-worldserver, destroy-infrastructure]
+    needs: [detect-changes, deploy-matchmaker, deploy-worldserver]
     if: always()
     steps:
       - name: Check deployment results
@@ -232,7 +238,7 @@ jobs:
   destroy-infrastructure:
     name: Destroy Infrastructure
     runs-on: ubuntu-latest
-    if: github.event.inputs.destroy-infrastructure == 'true' || (github.event_name == 'workflow_dispatch' && inputs.deploy-worldserver == 'true')
+    if: github.event.inputs.destroy-infrastructure == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
