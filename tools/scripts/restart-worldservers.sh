@@ -36,10 +36,17 @@ echo "Cleaning up DynamoDB worlds table: $TABLE_NAME"
 
 ITEMS=$(aws dynamodb scan --table-name $TABLE_NAME --region $REGION --output json | jq -c '.Items[]')
 for ITEM in $ITEMS; do
-  # Extract the primary key (assumes 'worldId' is the partition key)
-  WORLD_ID=$(echo $ITEM | jq -r '.worldId.S')
-  echo "Deleting worldId: $WORLD_ID"
-  aws dynamodb delete-item --table-name $TABLE_NAME --region $REGION --key "{\"worldId\":{\"S\":\"$WORLD_ID\"}}"
+  # Extract partition key (pk) and sort key (sk) from the item
+  PK=$(echo $ITEM | jq -r '.pk.S')
+  SK=$(echo $ITEM | jq -r '.sk.S')
+  
+  if [ -z "$PK" ] || [ -z "$SK" ] || [ "$PK" == "null" ] || [ "$SK" == "null" ]; then
+    echo "Skipping item with invalid keys: pk=$PK, sk=$SK"
+    continue
+  fi
+  
+  echo "Deleting item: pk=$PK, sk=$SK"
+  aws dynamodb delete-item --table-name $TABLE_NAME --region $REGION --key "{\"pk\":{\"S\":\"$PK\"},\"sk\":{\"S\":\"$SK\"}}"
 done
 
 echo "DynamoDB cleanup complete."
