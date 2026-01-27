@@ -6,14 +6,11 @@ WORKDIR /app
 RUN apk add --no-cache openssl
 
 # Copy workspace files needed for installation
-COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
+COPY package.json ./
 COPY packages/drawvid-worldserver/package.json ./packages/drawvid-worldserver/
 
-# Install pnpm
-RUN npm install -g pnpm@8.15.0
-
-# Install dependencies from workspace
-RUN pnpm install --frozen-lockfile --prod
+# Install dependencies from workspace (npm workspaces)
+RUN npm install --omit=dev --workspace=drawvid-worldserver
 
 # Copy built worldserver code
 COPY packages/drawvid-worldserver/dist ./packages/drawvid-worldserver/dist
