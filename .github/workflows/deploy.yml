@@ -131,7 +131,7 @@ jobs:
       - name: Install dependencies
         run: |
           cd packages/drawvid-matchmaker
-          npm ci
+          npm install
 
       - name: Build matchmaker
         run: |
@@ -172,6 +172,10 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install dependencies
+        run: |
+          npm install
+
       - name: Build world server image
         run: |
           ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
@@ -208,7 +212,7 @@ jobs:
       - name: Install dependencies
         run: |
           cd cyberia
-          npm ci
+          npm install
 
       - name: Deploy frontend
         run: |
