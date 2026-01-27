@@ -1,9 +1,6 @@
 name: Deploy to Production
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       deploy-matchmaker:
@@ -16,13 +13,13 @@ on:
         required: false
         default: "false"
         type: boolean
-      deploy-frontend:
-        description: "Deploy Frontend"
+      deploy-all:
+        description: "Deploy everything (overrides individual selections)"
         required: false
         default: "false"
         type: boolean
-      deploy-all:
-        description: "Deploy everything (overrides individual selections)"
+      destroy-infrastructure:
+        description: "⚠️ DESTROY infrastructure (cannot be undone!)"
         required: false
         default: "false"
         type: boolean
@@ -212,3 +209,54 @@ jobs:
         run: |
           echo "❌ One or more deployments failed!"
           exit 1
+  destroy-infrastructure:
+    name: Destroy Infrastructure
+    runs-on: ubuntu-latest
+    if: github.event.inputs.destroy-infrastructure == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: ⚠️ Confirm destruction
+        run: |
+          echo "⚠️  WARNING: DESTROYING ALL INFRASTRUCTURE!"
+          echo "This will:"
+          echo "  - Delete CloudFormation stack (matchmaker)"
+          echo "  - Terminate ECS tasks and services"
+          echo "  - Delete DynamoDB tables"
+          echo "  - Remove Lambda functions"
+          echo "  - Delete VPCs, subnets, and security groups"
+          echo ""
+          echo "This action CANNOT be undone!"
+          echo ""
+          sleep 3
+
+      - name: Destroy CloudFormation stack
+        run: |
+          STACK_NAME="DrawvidVerseMatchmakerStack"
+          echo "Destroying stack: $STACK_NAME"
+          aws cloudformation delete-stack --stack-name $STACK_NAME --region ${{ env.AWS_REGION }}
+          echo "Stack deletion initiated..."
+
+      - name: Wait for stack deletion
+        run: |
+          STACK_NAME="DrawvidVerseMatchmakerStack"
+          echo "Waiting for stack deletion to complete (this may take several minutes)..."
+          aws cloudformation wait stack-delete-complete \
+            --stack-name $STACK_NAME \
+            --region ${{ env.AWS_REGION }} || echo "Stack deletion completed or does not exist"
+
+      - name: Destruction complete
+        run: |
+          echo "✅ Infrastructure destruction initiated!"
+          echo "All resources will be cleaned up within the next few minutes."
+          echo ""
+          echo "To verify deletion:"
+          echo "  aws cloudformation describe-stacks --stack-name DrawvidVerseMatchmakerStack --region us-east-2"
