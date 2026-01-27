@@ -1,8 +1,7 @@
-import { APIGatewayProxyWebsocketEventV2, APIGatewayProxyResultV2 } from 'aws-lambda';
+import { APIGatewayProxyResultV2 } from 'aws-lambda';
 import { saveConnection } from '../shared/ddb.js';
 
-export const handler = async (
-  event: APIGatewayProxyWebsocketEventV2
+  event: any
 ): Promise<APIGatewayProxyResultV2> => {
   const connectionId = event.requestContext.connectionId;
   console.log('[CONNECT] New connection:', connectionId);
