@@ -22,7 +22,7 @@ export const handler = async (
       subprotocol = event.headers['sec-websocket-protocol'] || event.headers['Sec-WebSocket-Protocol'];
     }
     if (subprotocol) {
-      // If multiple protocols are sent, pick the first one
+      // If multiple protocols are sent, pick the first one (never echo back the token)
       const firstProtocol = subprotocol.split(',')[0].trim();
       response = {
         statusCode: 200,
