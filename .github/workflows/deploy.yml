@@ -134,12 +134,8 @@ jobs:
         run: |
           cd packages/drawvid-matchmaker
           npm run build
-          npm run bundle-lambdas
-
-      - name: Build CDK infrastructure
-        run: |
-          cd packages/drawvid-matchmaker/infra
-          npm run build
+          echo "Lambda bundle contents:"
+          ls -la dist/lambda-bundle/ || echo "Lambda bundle directory not found"
 
       - name: Deploy matchmaker stack
         run: |
