@@ -5,6 +5,7 @@ import { logger } from '../app/logger';
 import { World } from '../world/world';
 import { ClientMessageSchema, ClientMessage } from './messages';
 import { sendMessage, sendError } from './protocol';
+import { stopECSTask } from '../aws/ecsSelfStop';
 
 interface ConnectionState {
   id: string;
@@ -18,6 +19,11 @@ interface ConnectionState {
 }
 
 const connections = new Map<WebSocket, ConnectionState>();
+
+// Auto-stop configuration (in milliseconds)
+const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+let lastPlayerDisconnectTime = 0;
+let idleCheckInterval: NodeJS.Timeout | null = null;
 
 // Rate limits (per second)
 const RATE_LIMITS = {
@@ -52,6 +58,47 @@ export function createWSServer(config: ServerConfig, world: World): WebSocketSer
   });
 
   logger.info({ port: config.gameConfig.worldServer.port, host: '0.0.0.0' }, 'WebSocket server listening (TLS handled by NLB)');
+
+  // Start idle check: if no players for IDLE_TIMEOUT_MS, stop the task
+  idleCheckInterval = setInterval(async () => {
+    const connectedPlayerCount = Array.from(connections.values()).filter(c => c.playerId).length;
+    
+    if (connectedPlayerCount === 0) {
+      const timeSinceLastDisconnect = Date.now() - lastPlayerDisconnectTime;
+      
+      logger.info(
+        { timeSinceLastDisconnect, IDLE_TIMEOUT_MS },
+        'Idle check: no players connected'
+      );
+
+      if (timeSinceLastDisconnect > IDLE_TIMEOUT_MS) {
+        logger.info('World idle timeout reached, stopping task for scale-to-zero');
+        
+        try {
+          let clusterArn = config.ecsClusterArn;
+          let taskArn = config.ecsTaskArn;
+          
+          // If task ARN not provided, get it from ECS metadata endpoint
+          if (!taskArn && process.env.ECS_CONTAINER_METADATA_URI_V4) {
+            const metadataUrl = `${process.env.ECS_CONTAINER_METADATA_URI_V4}/task`;
+            const response = await fetch(metadataUrl);
+            const metadata = await response.json();
+            taskArn = metadata.TaskARN;
+            logger.info({ taskArn }, 'Retrieved task ARN from metadata endpoint');
+          }
+          
+          if (clusterArn && taskArn) {
+            await stopECSTask(config.awsRegion || 'us-east-2', clusterArn, taskArn);
+            logger.info('Successfully requested task stop');
+          } else {
+            logger.warn({ clusterArn, taskArn }, 'Missing clusterArn or taskArn, cannot stop task');
+          }
+        } catch (error) {
+          logger.error({ error }, 'Failed to stop task');
+        }
+      }
+    }
+  }, 30 * 1000); // Check every 30 seconds
 
   wss.on('connection', (ws: WebSocket, req) => {
     const clientIp = req.socket.remoteAddress;
@@ -115,7 +162,10 @@ export function createWSServer(config: ServerConfig, world: World): WebSocketSer
 
       if (state.playerId) {
         world.removePlayer(state.playerId);
-        logger.info({ connId, playerId: state.playerId }, 'Player disconnected');
+        logger.info({ connId: state.id, playerId: state.playerId }, 'Player disconnected');
+        
+        // Track when last player disconnected for idle timeout
+        lastPlayerDisconnectTime = Date.now();
       }
     });
 
@@ -123,6 +173,14 @@ export function createWSServer(config: ServerConfig, world: World): WebSocketSer
       logger.error({ connId, error }, 'WebSocket error');
     });
   });
+
+  // Store cleanup function for graceful shutdown
+  (wss as any).cleanupIdleCheck = () => {
+    if (idleCheckInterval) {
+      clearInterval(idleCheckInterval);
+      idleCheckInterval = null;
+    }
+  };
 
   return wss;
 }
@@ -172,7 +230,11 @@ async function handleMessage(
         sendError(ws, 'RATE_LIMIT', 'Too many bootstrap uploads');
         return;
       }
-      await world.handleBootstrapUpload(state.playerId, message.payload);
+      
+      // Handle full bootstrap upload
+      if (message.payload) {
+        await world.handleBootstrapUpload(state.playerId, message.payload);
+      }
       break;
 
     case 'rtcOffer':

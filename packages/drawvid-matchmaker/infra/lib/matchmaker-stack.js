@@ -272,6 +272,22 @@ class MatchmakerStack extends cdk.Stack {
                 integration: new apigatewayv2Integrations.WebSocketLambdaIntegration('DefaultIntegration', defaultHandler),
             },
         });
+        // --- Escape hatch: inject requestTemplates for $connect route ---
+        const connectIntegrationConstruct = webSocketApi.node.tryFindChild('ConnectIntegration');
+        if (connectIntegrationConstruct && 'node' in connectIntegrationConstruct && connectIntegrationConstruct.node.defaultChild) {
+            const cfnConnectIntegration = connectIntegrationConstruct.node.defaultChild;
+            cfnConnectIntegration.requestTemplates = {
+                'application/json': `{
+          "headers": {
+            #foreach($header in $input.params().header.keySet())
+              "$header": "$util.escapeJavaScript($input.params().header.get($header))"#if($foreach.hasNext),#end
+            #end
+          },
+          "requestContext": $util.toJson($context.requestContext),
+          "isBase64Encoded": false
+        }`
+            };
+        }
         // Add message routes
         webSocketApi.addRoute('createWorld', {
             integration: new apigatewayv2Integrations.WebSocketLambdaIntegration('CreateWorldIntegration', messageHandler),
@@ -395,6 +411,14 @@ class MatchmakerStack extends cdk.Stack {
         new cdk.CfnOutput(this, 'FrontendUrl', {
             value: 'https://cyberia.drawvid.com',
             description: 'Frontend URL (served via S3 website endpoint)',
+        });
+        new cdk.CfnOutput(this, 'WorldsTableName', {
+            value: table.tableName,
+            description: 'DynamoDB table name for worlds',
+        });
+        new cdk.CfnOutput(this, 'WorldServerTargetGroupArn', {
+            value: worldServerTargetGroup.targetGroupArn,
+            description: 'NLB Target Group ARN for world server tasks',
         });
     }
 }

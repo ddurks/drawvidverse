@@ -12,16 +12,9 @@ import {
   AllocateAddressCommand,
   AssociateAddressCommand,
 } from '@aws-sdk/client-ec2';
-import {
-  ElasticLoadBalancingV2Client,
-  RegisterTargetsCommand,
-  DescribeTargetHealthCommand,
-  DeregisterTargetsCommand,
-} from '@aws-sdk/client-elastic-load-balancing-v2';
 
 const ecsClient = new ECSClient({});
 const ec2Client = new EC2Client({});
-const elbv2Client = new ElasticLoadBalancingV2Client({});
 
 export interface LaunchConfig {
   clusterArn: string;
@@ -33,7 +26,6 @@ export interface LaunchConfig {
   ddbTable: string;
   jwtSecret: string;
   region: string;
-  targetGroupArn?: string; // NLB target group ARN for registration
 }
 
 export async function launchWorldTask(config: LaunchConfig): Promise<{ arn: string; isNew: boolean }> {
@@ -90,6 +82,8 @@ export async function launchWorldTask(config: LaunchConfig): Promise<{ arn: stri
               { name: 'JWT_SECRET', value: config.jwtSecret },
               { name: 'AWS_REGION', value: config.region },
               { name: 'WORLD_STORE_MODE', value: 'dynamodb' },
+              // Pass cluster for self-stop capability (task ARN will be retrieved from ECS metadata)
+              { name: 'ECS_CLUSTER_ARN', value: config.clusterArn },
             ],
           },
         ],
@@ -251,97 +245,6 @@ export async function getTaskPrivateIp(
   return eni.PrivateIpAddress || null;
 }
 
-export async function registerTaskWithTargetGroup(
-  targetGroupArn: string,
-  clusterArn: string,
-  taskArn: string,
-  targetPort: number = 7777
-): Promise<void> {
-  try {
-    console.log('[registerTaskWithTargetGroup] Getting task private IP...');
-    const privateIp = await getTaskPrivateIp(clusterArn, taskArn);
-
-    if (!privateIp) {
-      console.error('[registerTaskWithTargetGroup] Failed: Could not retrieve task private IP');
-      throw new Error('Could not retrieve task private IP');
-    }
-
-    console.log('[registerTaskWithTargetGroup] Got private IP:', privateIp);
-    console.log('[registerTaskWithTargetGroup] Registering target with:');
-    console.log('  - Target Group ARN:', targetGroupArn);
-    console.log('  - Target IP:', privateIp);
-    console.log('  - Target Port:', targetPort);
-
-    await elbv2Client.send(
-      new RegisterTargetsCommand({
-        TargetGroupArn: targetGroupArn,
-        Targets: [
-          {
-            Id: privateIp,
-            Port: targetPort,
-          },
-        ],
-      })
-    );
-
-    console.log('[registerTaskWithTargetGroup] Target registered successfully');
-  } catch (error: any) {
-    console.error('[registerTaskWithTargetGroup] Error registering target:', error.message || error);
-    console.error('[registerTaskWithTargetGroup] Full error:', error);
-    throw error;
-  }
-}
-
-export async function waitForTargetHealthy(
-  targetGroupArn: string,
-  targetIp: string,
-  targetPort: number = 7777,
-  timeoutMs: number = 120000
-): Promise<void> {
-  const startTime = Date.now();
-
-  while (Date.now() - startTime < timeoutMs) {
-    try {
-      const result = await elbv2Client.send(
-        new DescribeTargetHealthCommand({
-          TargetGroupArn: targetGroupArn,
-        })
-      );
-
-      const elapsedSec = Math.round((Date.now() - startTime) / 1000);
-      
-      if (result.TargetHealthDescriptions && result.TargetHealthDescriptions.length > 0) {
-        const healthStates = result.TargetHealthDescriptions.map(h => ({
-          id: h.Target?.Id,
-          state: h.TargetHealth?.State,
-          reason: h.TargetHealth?.Reason,
-        }));
-
-        console.log(`[waitForTargetHealthy] (${elapsedSec}s) Found ${result.TargetHealthDescriptions.length} targets:`, healthStates);
-
-        // If ANY target is healthy, return success
-        for (const health of result.TargetHealthDescriptions) {
-          if (health.TargetHealth?.State === 'healthy') {
-            console.log('[waitForTargetHealthy] ✓ Found healthy target!');
-            return;
-          }
-        }
-
-        // If we have targets but none are healthy yet, keep waiting
-      } else {
-        console.log(`[waitForTargetHealthy] (${elapsedSec}s) No targets registered yet`);
-      }
-    } catch (error: any) {
-      console.error('[waitForTargetHealthy] Error:', error.message);
-    }
-
-    // Wait 2 seconds before checking again
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  }
-
-  throw new Error(`No healthy targets found after ${timeoutMs}ms`);
-}
-
 export async function waitForTaskRunning(
   clusterArn: string,
   taskArn: string,
@@ -399,88 +302,4 @@ export async function waitForTaskRunning(
   }
 
   throw new Error('Task did not reach RUNNING state with private IP within timeout');
-}
-export async function cleanupStaleTargets(targetGroupArn: string, clusterArn: string): Promise<void> {
-  try {
-    console.log('[cleanupStaleTargets] Starting deferred cleanup of old targets...');
-    
-    // Get all current targets in the target group
-    const targetHealth = await elbv2Client.send(
-      new DescribeTargetHealthCommand({
-        TargetGroupArn: targetGroupArn,
-      })
-    );
-
-    if (!targetHealth.TargetHealthDescriptions || targetHealth.TargetHealthDescriptions.length <= 1) {
-      console.log('[cleanupStaleTargets] Only one target or fewer - no cleanup needed');
-      return;
-    }
-
-    console.log('[cleanupStaleTargets] Found', targetHealth.TargetHealthDescriptions.length, 'targets');
-    
-    // Keep the most recently added target (newest), deregister all others
-    // Sort by initial state to find the newest one (it will be in 'initial' or 'healthy' state)
-    const targetsToDeregister: any[] = [];
-    let healthyCount = 0;
-    let initialCount = 0;
-
-    for (const target of targetHealth.TargetHealthDescriptions) {
-      const targetId = target.Target?.Id;
-      const state = target.TargetHealth?.State;
-      
-      if (!targetId) continue;
-
-      // Count healthy/initial targets (these are the newest ones we want to keep)
-      if (state === 'healthy') healthyCount++;
-      else if (state === 'initial') initialCount++;
-      else {
-        // Unhealthy or draining - definitely old, deregister it
-        console.log('[cleanupStaleTargets] Deregistering unhealthy target:', targetId, 'state:', state);
-        targetsToDeregister.push({
-          Id: targetId,
-          Port: target.Target?.Port || 7777,
-        });
-      }
-    }
-
-    // If we have multiple healthy targets, deregister all but the newest one
-    let healthyTargets = targetHealth.TargetHealthDescriptions.filter(
-      (t) => t.TargetHealth?.State === 'healthy'
-    );
-    
-    if (healthyTargets.length > 1) {
-      // Sort by ID (rough heuristic for "newest")
-      healthyTargets = healthyTargets.sort(
-        (a, b) => (b.Target?.Id || '').localeCompare(a.Target?.Id || '')
-      );
-      
-      // Deregister all but the first one
-      for (let i = 1; i < healthyTargets.length; i++) {
-        const targetId = healthyTargets[i].Target?.Id;
-        if (targetId) {
-          console.log('[cleanupStaleTargets] Deregistering old healthy target:', targetId);
-          targetsToDeregister.push({
-            Id: targetId,
-            Port: healthyTargets[i].Target?.Port || 7777,
-          });
-        }
-      }
-    }
-
-    if (targetsToDeregister.length > 0) {
-      console.log('[cleanupStaleTargets] Deregistering', targetsToDeregister.length, 'old targets');
-      await elbv2Client.send(
-        new DeregisterTargetsCommand({
-          TargetGroupArn: targetGroupArn,
-          Targets: targetsToDeregister,
-        })
-      );
-      console.log('[cleanupStaleTargets] Deregistration complete');
-    } else {
-      console.log('[cleanupStaleTargets] No old targets to deregister');
-    }
-  } catch (error) {
-    console.error('[cleanupStaleTargets] Error during cleanup:', error);
-    // Don't fail the deployment due to cleanup errors
-  }
 }

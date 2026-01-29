@@ -116,7 +116,16 @@ export const BootstrapUploadMessageSchema = z.object({
   t: z.literal('bootstrapUpload'),
   worldId: z.string(),
   version: z.number(),
-  payload: WorldBootstrapPayloadSchema,
+  part: z.enum(['terrain', 'instances', 'colliders']).optional(),
+  positions: z.array(z.object({
+    x: z.number(),
+    y: z.number(),
+    z: z.number(),
+    yaw: z.number().optional(),
+    scale: z.number().optional(),
+    type: z.string().optional(),
+  })).optional(),
+  payload: WorldBootstrapPayloadSchema.optional(),
 });
 
 export const RTCOfferMessageSchema = z.object({

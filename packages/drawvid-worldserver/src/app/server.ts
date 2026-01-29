@@ -48,6 +48,10 @@ export class Server {
     }
 
     if (this.wss) {
+      // Cleanup idle check interval
+      if ((this.wss as any).cleanupIdleCheck) {
+        (this.wss as any).cleanupIdleCheck();
+      }
       this.wss.close();
     }
 

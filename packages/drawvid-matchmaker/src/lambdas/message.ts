@@ -10,7 +10,7 @@ import {
   makeWorldKey,
   updateWorldActivity,
 } from '../shared/ddb.js';
-import { launchWorldTask, waitForTaskRunning, registerTaskWithTargetGroup, waitForTargetHealthy } from '../shared/ecs.js';
+import { launchWorldTask, waitForTaskRunning } from '../shared/ecs.js';
 import { issueWorldToken } from '../shared/jwt.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -301,7 +301,6 @@ async function tryStartWorld(
     ddbTable: DDB_TABLE,
     jwtSecret: JWT_SECRET,
     region: AWS_REGION_CONFIG,
-    targetGroupArn: TARGET_GROUP_ARN,
   });
   
   const taskArn = launchResult.arn;
@@ -325,43 +324,34 @@ async function tryStartWorld(
     msg: 'STARTING',
   });
 
-  // Wait for task to be running and get private IP
-  try {
-    console.log('[tryStartWorld] Waiting for task to be running...');
-    const privateIp = await waitForTaskRunning(ECS_CLUSTER_ARN, taskArn);
-    console.log('[tryStartWorld] Task is running with private IP:', privateIp);
+  // Don't wait synchronously - launch async startup and return immediately
+  // This prevents API Gateway WebSocket 3-second timeout
+  console.log('[tryStartWorld] Launching async startup, returning immediately');
+  
+  // Fire and forget: start the task in the background
+  (async () => {
+    try {
+      // Wait for task to be running and get private IP
+      console.log('[tryStartWorld-async] Waiting for task to be running...');
+      const privateIp = await waitForTaskRunning(ECS_CLUSTER_ARN, taskArn);
+      console.log('[tryStartWorld-async] Task is running with private IP:', privateIp);
 
-    // Only register and wait for health on new tasks
-    if (isNewTask) {
-      // Wait for world server to start listening
-      console.log('[tryStartWorld] Waiting 10s for world server and NLB to initialize...');
-      await new Promise((resolve) => setTimeout(resolve, 10000));
+      // Wait for world server to start listening on port 7777
+      // NLB will automatically discover the task via its health checks
+      console.log('[tryStartWorld-async] Waiting 5s for world server to start listening...');
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      console.log('[tryStartWorld-async] Ready for connections!');
 
-      // Register task with NLB target group
-      console.log('[tryStartWorld] Registering task with NLB target group...');
-      await registerTaskWithTargetGroup(TARGET_GROUP_ARN, ECS_CLUSTER_ARN, taskArn, 7777);
-      console.log('[tryStartWorld] Task registered with target group');
-
-      // Wait additional 30s for NLB health checks to complete
-      console.log('[tryStartWorld] Waiting 30s for NLB health checks...');
-      await new Promise((resolve) => setTimeout(resolve, 30000));
-      console.log('[tryStartWorld] Ready for connections!');
-    } else {
-      console.log('[tryStartWorld] Task already running, skipping startup wait');
+      // Update world to running
+      console.log('[tryStartWorld-async] Updating world to RUNNING');
+      await updateWorldToRunning(gameKey, worldId, privateIp, gameConfig.worldServer.port);
+      console.log('[tryStartWorld-async] World updated to RUNNING');
+    } catch (error: any) {
+      console.error('[tryStartWorld-async] Failed to start world:', error);
+      // Update to error
+      await updateWorldToError(gameKey, worldId, error.message);
     }
+  })();
 
-    // Update world to running
-    console.log('[tryStartWorld] Updating world to RUNNING');
-    await updateWorldToRunning(gameKey, worldId, privateIp, gameConfig.worldServer.port);
-    console.log('[tryStartWorld] World updated to RUNNING');
-
-    return true;
-  } catch (error: any) {
-    console.error('[tryStartWorld] Failed to start world:', error);
-
-    // Update to error
-    await updateWorldToError(gameKey, worldId, error.message);
-
-    throw error;
-  }
+  return true;
 }
