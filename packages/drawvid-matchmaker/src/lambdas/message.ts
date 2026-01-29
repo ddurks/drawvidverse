@@ -262,11 +262,10 @@ async function handleJoinWorld(connectionId: string, body: any): Promise<void> {
     );
     if (!targetHealthy) {
       console.log('[joinWorld] NLB target not healthy - task likely needs restart');
-      // Update world back to STOPPED so next request will relaunch it
-      await updateWorldToError(gameKey, worldId, 'RESTARTING');
+      // Send STARTING status to client so it knows to wait
       await sendToConnection(connectionId, {
         t: 'status',
-        msg: 'STARTING', // Tell client it's restarting
+        msg: 'STARTING',
       });
       // Retry this join after a delay
       setTimeout(() => {
