@@ -19,9 +19,10 @@ import { join } from 'path';
 const WEBSOCKET_ENDPOINT = process.env.WEBSOCKET_ENDPOINT!;
 const ECS_CLUSTER_ARN = process.env.ECS_CLUSTER_ARN!;
 const TASK_DEFINITION_ARN = process.env.TASK_DEFINITION_ARN!;
+const TASK_ROLE_ARN = process.env.TASK_ROLE_ARN!;
+const TASK_EXECUTION_ROLE_ARN = process.env.TASK_EXECUTION_ROLE_ARN!;
 const SUBNETS = process.env.SUBNETS!.split(',');
 const SECURITY_GROUP = process.env.SECURITY_GROUP!;
-const TARGET_GROUP_ARN = process.env.TARGET_GROUP_ARN!;
 const DDB_TABLE = process.env.TABLE_NAME!;
 const JWT_SECRET = process.env.JWT_SECRET!;
 const AWS_REGION_CONFIG = process.env.AWS_REGION || 'us-east-2';
@@ -298,6 +299,8 @@ async function tryStartWorld(
     ddbTable: DDB_TABLE,
     jwtSecret: JWT_SECRET,
     region: AWS_REGION_CONFIG,
+    taskRoleArn: TASK_ROLE_ARN,
+    executionRoleArn: TASK_EXECUTION_ROLE_ARN,
   });
   
   const taskArn = launchResult.arn;

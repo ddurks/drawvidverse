@@ -26,11 +26,19 @@ export interface LaunchConfig {
   ddbTable: string;
   jwtSecret: string;
   region: string;
+  taskRoleArn: string;
+  executionRoleArn: string;
 }
 
 export async function launchWorldTask(config: LaunchConfig): Promise<{ arn: string; isNew: boolean }> {
   // First, check if any task is already running or starting
   console.log('[launchWorldTask] Checking if task already exists...');
+  console.log('[launchWorldTask] Config:', {
+    cluster: config.clusterArn,
+    taskDefinition: config.taskDefinitionArn,
+    subnets: config.subnets,
+    securityGroup: config.securityGroup,
+  });
   
   try {
     // Check for RUNNING or PROVISIONING tasks
@@ -59,45 +67,68 @@ export async function launchWorldTask(config: LaunchConfig): Promise<{ arn: stri
 
   // No task running or starting, launch a new one
   console.log('[launchWorldTask] Launching new world server task...');
-  const result = await ecsClient.send(
-    new RunTaskCommand({
-      cluster: config.clusterArn,
-      taskDefinition: config.taskDefinitionArn,
-      launchType: 'FARGATE',
-      networkConfiguration: {
-        awsvpcConfiguration: {
-          subnets: config.subnets,
-          securityGroups: [config.securityGroup],
-          assignPublicIp: 'ENABLED',
-        },
-      },
-      overrides: {
-        containerOverrides: [
-          {
-            name: 'worldserver',
-            environment: [
-              { name: 'GAME_KEY', value: config.gameKey },
-              { name: 'WORLD_ID', value: config.worldId },
-              { name: 'DDB_TABLE', value: config.ddbTable },
-              { name: 'JWT_SECRET', value: config.jwtSecret },
-              { name: 'AWS_REGION', value: config.region },
-              { name: 'WORLD_STORE_MODE', value: 'dynamodb' },
-              // Pass cluster for self-stop capability (task ARN will be retrieved from ECS metadata)
-              { name: 'ECS_CLUSTER_ARN', value: config.clusterArn },
-            ],
+  
+  try {
+    const result = await ecsClient.send(
+      new RunTaskCommand({
+        cluster: config.clusterArn,
+        taskDefinition: config.taskDefinitionArn,
+        launchType: 'FARGATE',
+        networkConfiguration: {
+          awsvpcConfiguration: {
+            subnets: config.subnets,
+            securityGroups: [config.securityGroup],
+            assignPublicIp: 'ENABLED',
           },
-        ],
-      },
-    })
-  );
+        },
+        overrides: {
+          taskRoleArn: config.taskRoleArn,
+          executionRoleArn: config.executionRoleArn,
+          containerOverrides: [
+            {
+              name: 'worldserver',
+              environment: [
+                { name: 'GAME_KEY', value: config.gameKey },
+                { name: 'WORLD_ID', value: config.worldId },
+                { name: 'DDB_TABLE', value: config.ddbTable },
+                { name: 'JWT_SECRET', value: config.jwtSecret },
+                { name: 'AWS_REGION', value: config.region },
+                { name: 'WORLD_STORE_MODE', value: 'dynamodb' },
+                // Pass cluster for self-stop capability (task ARN will be retrieved from ECS metadata)
+                { name: 'ECS_CLUSTER_ARN', value: config.clusterArn },
+              ],
+            },
+          ],
+        },
+      })
+    );
 
-  if (!result.tasks || result.tasks.length === 0) {
-    throw new Error('Failed to launch task');
+    console.log('[launchWorldTask] RunTask response:', {
+      tasks: result.tasks?.length,
+      failures: result.failures?.length,
+    });
+
+    if (result.failures && result.failures.length > 0) {
+      console.error('[launchWorldTask] Task launch failures:', result.failures);
+      throw new Error(`Failed to launch task: ${result.failures[0].reason}`);
+    }
+
+    if (!result.tasks || result.tasks.length === 0) {
+      throw new Error('Failed to launch task - no tasks returned');
+    }
+
+    const taskArn = result.tasks[0].taskArn!;
+    const taskStatus = result.tasks[0];
+    console.log('[launchWorldTask] New task launched:', {
+      arn: taskArn,
+      lastStatus: taskStatus.lastStatus,
+      desiredStatus: taskStatus.desiredStatus,
+    });
+    return { arn: taskArn, isNew: true }; // Mark as new
+  } catch (error: any) {
+    console.error('[launchWorldTask] Error launching task:', error);
+    throw error;
   }
-
-  const taskArn = result.tasks[0].taskArn!;
-  console.log('[launchWorldTask] New task launched:', taskArn);
-  return { arn: taskArn, isNew: true }; // Mark as new
 }
 
 export async function getTaskPublicIp(
@@ -251,6 +282,8 @@ export async function waitForTaskRunning(
   timeoutMs: number = 120000
 ): Promise<string> {
   const startTime = Date.now();
+  let lastStatus = 'UNKNOWN';
+  let lastStopCode = '';
 
   while (Date.now() - startTime < timeoutMs) {
     const result = await ecsClient.send(
@@ -261,11 +294,21 @@ export async function waitForTaskRunning(
     );
 
     if (!result.tasks || result.tasks.length === 0) {
+      console.log('[waitForTaskRunning] Task not found, waiting...');
       await new Promise((resolve) => setTimeout(resolve, 3000));
       continue;
     }
 
     const task = result.tasks[0];
+    lastStatus = task.lastStatus || 'UNKNOWN';
+    lastStopCode = task.stoppedReason || '';
+
+    console.log('[waitForTaskRunning] Task status:', {
+      lastStatus: task.lastStatus,
+      desiredStatus: task.desiredStatus,
+      stoppedReason: task.stoppedReason,
+      stoppingAt: task.stoppingAt,
+    });
 
     // Check if task is running
     if (task.lastStatus === 'RUNNING') {
@@ -297,9 +340,15 @@ export async function waitForTaskRunning(
       }
     }
 
+    // Check if task failed
+    if (task.lastStatus === 'STOPPED' || task.desiredStatus === 'STOPPED') {
+      throw new Error(`Task stopped: ${task.stoppedReason || 'Unknown reason'}`);
+    }
+
     // Wait 3 seconds before checking again
+    console.log('[waitForTaskRunning] Task not ready, waiting 3s...');
     await new Promise((resolve) => setTimeout(resolve, 3000));
   }
 
-  throw new Error('Task did not reach RUNNING state with private IP within timeout');
+  throw new Error(`Task did not reach RUNNING state within ${timeoutMs}ms. Last status: ${lastStatus}. Reason: ${lastStopCode}`);
 }

@@ -172,7 +172,14 @@ export class MatchmakerStack extends cdk.Stack {
       TABLE_NAME: table.tableName,
       ECS_CLUSTER_ARN: cluster.clusterArn,
       TASK_DEFINITION_ARN: taskDefinition.taskDefinitionArn,
+      TASK_ROLE_ARN: taskDefinition.taskRole.roleArn,
+      TASK_EXECUTION_ROLE_ARN: taskDefinition.executionRole!.roleArn,
       SUBNETS: vpc.publicSubnets.map((s) => s.subnetId).join(','),
+      SECURITY_GROUP: worldserverSecurityGroup.securityGroupId,
+      JWT_SECRET: jwtSecret.secretArn,
+      GAME_CONFIG_CYBERIA: JSON.stringify(gameConfig),
+      WEBSOCKET_ENDPOINT: `https://${webSocketApi.apiId}.execute-api.${this.region}.amazonaws.com/prod`,
+    };
       SECURITY_GROUP: worldserverSecurityGroup.securityGroupId,
       JWT_SECRET: jwtSecret.secretValue.unsafeUnwrap(), // In production, use fromSecretsManager
       [`GAME_CONFIG_${gameKey.toUpperCase()}`]: JSON.stringify(gameConfig),
@@ -224,10 +231,11 @@ export class MatchmakerStack extends cdk.Stack {
         actions: [
           'ecs:RunTask',
           'ecs:DescribeTasks',
+          'ecs:ListTasks',
+          'ecs:StopTask',
           'ec2:DescribeNetworkInterfaces',
           'ec2:AllocateAddress',
           'ec2:AssociateAddress',
-          'elasticloadbalancing:RegisterTargets',
           'iam:PassRole',
         ],
         resources: ['*'],
