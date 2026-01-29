@@ -201,7 +201,7 @@ jobs:
         run: |
           cd packages/drawvid-matchmaker
           npm install
-          npm run bundle-lambdas
+          npm run build
           echo "Lambda bundle created:"
           ls -la dist/lambda-bundle/ || echo "Lambda bundle directory not found"
 
