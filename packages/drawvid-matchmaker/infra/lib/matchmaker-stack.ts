@@ -189,7 +189,7 @@ export class MatchmakerStack extends cdk.Stack {
       SUBNETS: vpc.publicSubnets.map((s) => s.subnetId).join(','),
       SECURITY_GROUP: worldserverSecurityGroup.securityGroupId,
       JWT_SECRET: jwtSecret.secretArn,
-      GAME_CONFIG_CYBERIA: JSON.stringify(gameConfig),
+      [`GAME_CONFIG_${gameKey.toUpperCase()}`]: JSON.stringify(gameConfig),
       WEBSOCKET_ENDPOINT: `https://${webSocketApi.apiId}.execute-api.${this.region}.amazonaws.com/prod`,
     };
 
