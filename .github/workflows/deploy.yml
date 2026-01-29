@@ -140,16 +140,6 @@ jobs:
       - name: Install workspace dependencies
         run: npm install --workspaces
 
-      - name: Build and push world server Docker image
-        id: build
-        run: |
-          IMAGE_TAG=$(date +%s)
-          echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
-          cd packages/drawvid-worldserver
-          npm install
-          cd ../..
-          ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
-
       - name: Bundle Lambda code
         run: |
           cd packages/drawvid-matchmaker
@@ -164,6 +154,16 @@ jobs:
           npx cdk deploy --all --require-approval never
         env:
           GAME_KEY: cyberia
+
+      - name: Build and push world server Docker image
+        id: build
+        run: |
+          IMAGE_TAG=$(date +%s)
+          echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          cd packages/drawvid-worldserver
+          npm install
+          cd ../..
+          ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
 
       - name: Deployment summary
         run: |
@@ -271,6 +271,18 @@ jobs:
         run: |
           cd packages/drawvid-worldserver
           npm install
+
+      - name: Ensure ECR repository exists
+        run: |
+          REGION="${{ env.AWS_REGION }}"
+          REPO_NAME="${{ env.ECR_REPOSITORY }}"
+          
+          # Try to create the repository if it doesn't exist
+          aws ecr create-repository \
+            --repository-name $REPO_NAME \
+            --region $REGION 2>/dev/null || true
+          
+          echo "✅ ECR repository ready: $REPO_NAME"
 
       - name: Build world server image
         id: build
