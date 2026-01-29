@@ -10,7 +10,7 @@ import {
   makeWorldKey,
   updateWorldActivity,
 } from '../shared/ddb.js';
-import { launchWorldTask, waitForTaskRunning } from '../shared/ecs.js';
+import { launchWorldTask, waitForTaskRunning, checkTaskRunning } from '../shared/ecs.js';
 import { issueWorldToken } from '../shared/jwt.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -177,6 +177,16 @@ async function handleJoinWorld(connectionId: string, body: any): Promise<void> {
     console.log('[joinWorld] World status is', world.status, '- attempting to start');
     const started = await tryStartWorld(connectionId, gameKey, worldId);
     console.log('[joinWorld] tryStartWorld returned:', started);
+  } else if (world.status === 'RUNNING' && world.taskArn) {
+    // Even if marked RUNNING, verify task is actually running (might have crashed/stopped)
+    console.log('[joinWorld] World marked RUNNING - verifying task is alive:', world.taskArn);
+    const taskAlive = await checkTaskRunning(world.taskArn);
+    if (!taskAlive) {
+      console.log('[joinWorld] Task is not actually running - restarting world');
+      await updateWorldToStarting(gameKey, worldId, world.taskArn); // Reset to STARTING
+      const started = await tryStartWorld(connectionId, gameKey, worldId);
+      console.log('[joinWorld] Restarted world, result:', started);
+    }
   }
 
   // If world is not running, wait for it (whether we started it or not)

@@ -352,3 +352,27 @@ export async function waitForTaskRunning(
 
   throw new Error(`Task did not reach RUNNING state within ${timeoutMs}ms. Last status: ${lastStatus}. Reason: ${lastStopCode}`);
 }
+
+export async function checkTaskRunning(taskArn: string): Promise<boolean> {
+  try {
+    const result = await ecsClient.send(
+      new DescribeTasksCommand({
+        cluster: 'drawvidverse-cluster', // Fallback cluster name
+        tasks: [taskArn],
+      })
+    );
+
+    if (!result.tasks || result.tasks.length === 0) {
+      console.log('[checkTaskRunning] Task not found:', taskArn);
+      return false;
+    }
+
+    const task = result.tasks[0];
+    const isRunning = task.lastStatus === 'RUNNING' && task.desiredStatus === 'RUNNING';
+    console.log('[checkTaskRunning] Task status:', { taskArn, lastStatus: task.lastStatus, desiredStatus: task.desiredStatus, isRunning });
+    return isRunning;
+  } catch (error: any) {
+    console.error('[checkTaskRunning] Error checking task:', error);
+    return false;
+  }
+}

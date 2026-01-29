@@ -88,7 +88,14 @@ export function createWSServer(config: ServerConfig, world: World): WebSocketSer
           }
           
           if (clusterArn && taskArn) {
-            await stopECSTask(config.awsRegion || 'us-east-2', clusterArn, taskArn);
+            await stopECSTask(
+              config.awsRegion || 'us-east-2',
+              clusterArn,
+              taskArn,
+              config.gameKey,
+              config.worldId,
+              config.ddbTable
+            );
             logger.info('Successfully requested task stop');
           } else {
             logger.warn({ clusterArn, taskArn }, 'Missing clusterArn or taskArn, cannot stop task');
