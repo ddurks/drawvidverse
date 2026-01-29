@@ -119,7 +119,7 @@ jobs:
     name: Deploy Backend Infrastructure
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.matchmaker-changed == 'true'
+    if: needs.detect-changes.outputs.backend-infra-changed == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -169,7 +169,7 @@ jobs:
     name: Deploy Matchmaker Lambda Code
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.matchmaker-changed == 'true'
+    if: needs.detect-changes.outputs.matchmaker-code-changed == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
