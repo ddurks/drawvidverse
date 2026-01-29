@@ -21,8 +21,8 @@ interface ConnectionState {
 const connections = new Map<WebSocket, ConnectionState>();
 
 // Auto-stop configuration (in milliseconds)
-const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-let lastPlayerDisconnectTime = 0;
+const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+let lastPlayerDisconnectTime = Date.now(); // Start counting from server startup
 let idleCheckInterval: NodeJS.Timeout | null = null;
 
 // Rate limits (per second)
