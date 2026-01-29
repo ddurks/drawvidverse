@@ -82,7 +82,7 @@ export function createWSServer(config: ServerConfig, world: World): WebSocketSer
           if (!taskArn && process.env.ECS_CONTAINER_METADATA_URI_V4) {
             const metadataUrl = `${process.env.ECS_CONTAINER_METADATA_URI_V4}/task`;
             const response = await fetch(metadataUrl);
-            const metadata = await response.json();
+            const metadata = await response.json() as { TaskARN?: string };
             taskArn = metadata.TaskARN;
             logger.info({ taskArn }, 'Retrieved task ARN from metadata endpoint');
           }

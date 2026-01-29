@@ -49,8 +49,6 @@ const route53 = __importStar(require("aws-cdk-lib/aws-route53"));
 const route53Targets = __importStar(require("aws-cdk-lib/aws-route53-targets"));
 const acm = __importStar(require("aws-cdk-lib/aws-certificatemanager"));
 const elbv2 = __importStar(require("aws-cdk-lib/aws-elasticloadbalancingv2"));
-const events = __importStar(require("aws-cdk-lib/aws-events"));
-const targets = __importStar(require("aws-cdk-lib/aws-events-targets"));
 const fs_1 = require("fs");
 const path_1 = require("path");
 class MatchmakerStack extends cdk.Stack {
@@ -176,7 +174,6 @@ class MatchmakerStack extends cdk.Stack {
             TASK_DEFINITION_ARN: taskDefinition.taskDefinitionArn,
             SUBNETS: vpc.publicSubnets.map((s) => s.subnetId).join(','),
             SECURITY_GROUP: worldserverSecurityGroup.securityGroupId,
-            TARGET_GROUP_ARN: worldServerTargetGroup.targetGroupArn,
             JWT_SECRET: jwtSecret.secretValue.unsafeUnwrap(), // In production, use fromSecretsManager
             [`GAME_CONFIG_${gameKey.toUpperCase()}`]: JSON.stringify(gameConfig),
         };
@@ -208,23 +205,11 @@ class MatchmakerStack extends cdk.Stack {
             environment: lambdaEnv,
             timeout: cdk.Duration.seconds(300), // Long timeout for task launch
         });
-        // Cleanup Lambda - runs periodically to stop idle worlds
-        const cleanupHandler = new lambda.Function(this, 'CleanupHandler', {
-            runtime: lambda.Runtime.NODEJS_20_X,
-            code: lambda.Code.fromAsset('../dist/lambda-bundle'),
-            handler: 'cleanup.handler',
-            environment: {
-                TABLE_NAME: table.tableName,
-                CLUSTER_ARN: cluster.clusterArn,
-            },
-            timeout: cdk.Duration.seconds(60),
-        });
         // Grant permissions
         table.grantReadWriteData(connectHandler);
         table.grantReadWriteData(disconnectHandler);
         table.grantReadWriteData(defaultHandler);
         table.grantReadWriteData(messageHandler);
-        table.grantReadWriteData(cleanupHandler);
         jwtSecret.grantRead(messageHandler);
         // Grant ECS permissions to message handler
         messageHandler.addToRolePolicy(new iam.PolicyStatement({
@@ -239,21 +224,6 @@ class MatchmakerStack extends cdk.Stack {
             ],
             resources: ['*'],
         }));
-        // Grant ECS permissions to cleanup handler
-        cleanupHandler.addToRolePolicy(new iam.PolicyStatement({
-            actions: [
-                'ecs:StopTask',
-                'ecs:DescribeTasks',
-            ],
-            resources: ['*'],
-        }));
-        // Schedule cleanup Lambda to run every 5 minutes
-        new events.Rule(this, 'CleanupSchedule', {
-            schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
-            targets: [new targets.LambdaFunction(cleanupHandler)],
-        });
-        // Grant EventBridge permission to invoke cleanup Lambda
-        cleanupHandler.grantInvoke(new iam.ServicePrincipal('events.amazonaws.com'));
         // ========================================================================
         // WebSocket API
         // ========================================================================
