@@ -140,16 +140,22 @@ jobs:
       - name: Install workspace dependencies
         run: npm install --workspaces
 
-      - name: Install dependencies
+      - name: Build and push world server Docker image
+        id: build
+        run: |
+          IMAGE_TAG=$(date +%s)
+          echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
+          cd packages/drawvid-worldserver
+          npm install
+          cd /Users/onlinedavid/code/drawvidverse
+          ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
+
+      - name: Bundle Lambda code
         run: |
           cd packages/drawvid-matchmaker
           npm install
-
-      - name: Build matchmaker
-        run: |
-          cd packages/drawvid-matchmaker
-          npm run build
-          echo "Lambda bundle contents:"
+          npm run bundle-lambdas
+          echo "Lambda bundle created:"
           ls -la dist/lambda-bundle/ || echo "Lambda bundle directory not found"
 
       - name: Deploy backend infrastructure stack
@@ -164,13 +170,14 @@ jobs:
           echo "✅ Backend infrastructure deployed successfully"
           echo "CDK Stack: DrawvidVerseMatchmakerStack"
           echo "Components: ECS Cluster, API Gateway, VPC, Load Balancer, Lambda Functions"
+          echo "World Server Image: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:${{ steps.build.outputs.image-tag }}"
           echo "Region: ${{ env.AWS_REGION }}"
 
   deploy-matchmaker:
     name: Deploy Matchmaker Lambda Code
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.matchmaker-code-changed == 'true' || needs.detect-changes.outputs.backend-infra-changed == 'true'
+    if: needs.detect-changes.outputs.matchmaker-code-changed == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -238,7 +245,7 @@ jobs:
     name: Deploy World Server
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.worldserver-changed == 'true' || needs.detect-changes.outputs.backend-infra-changed == 'true'
+    if: needs.detect-changes.outputs.worldserver-changed == 'true'
     outputs:
       image-tag: ${{ steps.build.outputs.image-tag }}
     steps:
