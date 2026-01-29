@@ -270,7 +270,8 @@ async function handleJoinWorld(connectionId: string, body: any): Promise<void> {
       // Retry this join after a delay
       setTimeout(() => {
         console.log('[joinWorld] Retrying joinWorld after task restart...');
-        handleJoinWorld(connectionId, gameKey, worldId).catch(err => {
+        const body = { gameKey, worldId };
+        handleJoinWorld(connectionId, body).catch(err => {
           console.error('[joinWorld] Retry failed:', err);
         });
       }, 3000);
