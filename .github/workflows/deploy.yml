@@ -10,7 +10,8 @@ on:
         default: "auto"
         options:
           - auto
-          - deploy-all
+          - deploy-backend-infra
+          - deploy-matchmaker
           - deploy-worldserver
           - destroy-infrastructure
 
@@ -37,29 +38,36 @@ jobs:
         id: changes
         run: |
           MODE="${{ github.event.inputs.mode }}"
-          
+
           # Handle manual deployment modes
-          if [ "$MODE" = "deploy-all" ]; then
+          if [ "$MODE" = "deploy-backend-infra" ]; then
             echo "matchmaker=true" >> $GITHUB_OUTPUT
-            echo "worldserver=true" >> $GITHUB_OUTPUT
-            echo "Manual mode: Deploying all infrastructure and code"
+            echo "worldserver=false" >> $GITHUB_OUTPUT
+            echo "Manual mode: Deploying backend infrastructure (CDK stack)"
             exit 0
           fi
-          
+
+          if [ "$MODE" = "deploy-matchmaker" ]; then
+            echo "matchmaker=true" >> $GITHUB_OUTPUT
+            echo "worldserver=false" >> $GITHUB_OUTPUT
+            echo "Manual mode: Deploying matchmaker Lambda code only"
+            exit 0
+          fi
+
           if [ "$MODE" = "deploy-worldserver" ]; then
             echo "matchmaker=false" >> $GITHUB_OUTPUT
             echo "worldserver=true" >> $GITHUB_OUTPUT
             echo "Manual mode: Deploying world server only"
             exit 0
           fi
-          
+
           if [ "$MODE" = "destroy-infrastructure" ]; then
             echo "matchmaker=false" >> $GITHUB_OUTPUT
             echo "worldserver=false" >> $GITHUB_OUTPUT
             echo "Manual mode: Infrastructure destruction triggered separately"
             exit 0
           fi
-          
+
           # Auto mode (default): detect changes from git
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD)
@@ -138,7 +146,7 @@ jobs:
         run: |
           echo "✅ Backend infrastructure deployed successfully"
           echo "CDK Stack: DrawvidVerseMatchmakerStack"
-          echo "Components: ECS Cluster, VPC, Load Balancer, Lambda Functions"
+          echo "Components: ECS Cluster, API Gateway, VPC, Load Balancer, Lambda Functions"
           echo "Region: ${{ env.AWS_REGION }}"
 
   deploy-matchmaker:
@@ -184,16 +192,16 @@ jobs:
           STACK_NAME="DrawvidVerseMatchmakerStack"
           REGION="${{ env.AWS_REGION }}"
           BUNDLE_ZIP="packages/drawvid-matchmaker/dist/lambda-bundle.zip"
-          
+
           echo "Getting Lambda function names from CloudFormation stack..."
           FUNCTIONS=$(aws cloudformation describe-stack-resources \
             --stack-name $STACK_NAME \
             --region $REGION \
             --query 'StackResources[?ResourceType==`AWS::Lambda::Function` && LogicalResourceId!=`CleanupHandler`].PhysicalResourceId' \
             --output text)
-          
+
           echo "Found functions to update: $FUNCTIONS"
-          
+
           # Update each Lambda function with the bundled code
           for FUNC in $FUNCTIONS; do
             echo "Updating function: $FUNC"
@@ -253,25 +261,25 @@ jobs:
           REGION="${{ env.AWS_REGION }}"
           IMAGE_TAG="${{ steps.build.outputs.image-tag }}"
           NEW_IMAGE="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG"
-          
+
           echo "Updating task definition with new image: $NEW_IMAGE"
-          
+
           # Get current task definition
           TASK_DEF=$(aws ecs describe-task-definition \
             --task-definition $TASK_DEF_ARN \
             --region $REGION \
             --output json)
-          
+
           # Update image in task definition
           NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg NEW_IMAGE "$NEW_IMAGE" \
             '.taskDefinition | .containerDefinitions[0].image = $NEW_IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
-          
+
           # Register new task definition
           REGISTER_RESULT=$(aws ecs register-task-definition \
             --cli-input-json "$(echo "$NEW_TASK_DEF" | jq -c .)" \
             --region $REGION \
             --output json)
-          
+
           NEW_TASK_DEF_ARN=$(echo "$REGISTER_RESULT" | jq -r '.taskDefinition.taskDefinitionArn')
           echo "✅ Registered new task definition: $NEW_TASK_DEF_ARN"
 
@@ -279,7 +287,7 @@ jobs:
         run: |
           CLUSTER="drawvidverse-cluster"
           REGION="${{ env.AWS_REGION }}"
-          
+
           echo "Stopping all running ECS tasks..."
           TASKS=$(aws ecs list-tasks --cluster $CLUSTER --region $REGION --desired-status RUNNING --output text --query 'taskArns[]' 2>/dev/null || echo "")
           if [ -n "$TASKS" ]; then
@@ -303,7 +311,13 @@ jobs:
   deployment-complete:
     name: Deployment Complete
     runs-on: ubuntu-latest
-    needs: [detect-changes, deploy-backend-infra, deploy-matchmaker, deploy-worldserver]
+    needs:
+      [
+        detect-changes,
+        deploy-backend-infra,
+        deploy-matchmaker,
+        deploy-worldserver,
+      ]
     if: always()
     steps:
       - name: Check deployment results
