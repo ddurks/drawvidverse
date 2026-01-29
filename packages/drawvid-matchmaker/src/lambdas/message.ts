@@ -333,6 +333,7 @@ async function tryStartWorld(
     region: AWS_REGION_CONFIG,
     taskRoleArn: TASK_ROLE_ARN,
     executionRoleArn: TASK_EXECUTION_ROLE_ARN,
+    targetGroupArn: WORLD_SERVER_TARGET_GROUP_ARN,
   });
   
   const taskArn = launchResult.arn;

@@ -33,6 +33,7 @@ export interface LaunchConfig {
   region: string;
   taskRoleArn: string;
   executionRoleArn: string;
+  targetGroupArn: string;
 }
 
 export async function launchWorldTask(config: LaunchConfig): Promise<{ arn: string; isNew: boolean }> {
@@ -105,7 +106,14 @@ export async function launchWorldTask(config: LaunchConfig): Promise<{ arn: stri
             },
           ],
         },
-      })
+        loadBalancers: [
+          {
+            targetGroupArn: config.targetGroupArn,
+            containerName: 'worldserver',
+            containerPort: 7777,
+          },
+        ],
+      } as any)
     );
 
     console.log('[launchWorldTask] RunTask response:', {
