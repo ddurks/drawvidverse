@@ -170,7 +170,7 @@ jobs:
     name: Deploy Matchmaker Lambda Code
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.matchmaker-code-changed == 'true'
+    if: needs.detect-changes.outputs.matchmaker-code-changed == 'true' || needs.detect-changes.outputs.backend-infra-changed == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -238,7 +238,7 @@ jobs:
     name: Deploy World Server
     runs-on: ubuntu-latest
     needs: detect-changes
-    if: needs.detect-changes.outputs.worldserver-changed == 'true'
+    if: needs.detect-changes.outputs.worldserver-changed == 'true' || needs.detect-changes.outputs.backend-infra-changed == 'true'
     outputs:
       image-tag: ${{ steps.build.outputs.image-tag }}
     steps:
