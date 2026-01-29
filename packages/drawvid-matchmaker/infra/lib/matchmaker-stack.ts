@@ -191,6 +191,7 @@ export class MatchmakerStack extends cdk.Stack {
       JWT_SECRET: jwtSecret.secretArn,
       [`GAME_CONFIG_${gameKey.toUpperCase()}`]: JSON.stringify(gameConfig),
       WEBSOCKET_ENDPOINT: `https://${webSocketApi.apiId}.execute-api.${this.region}.amazonaws.com/prod`,
+      WORLD_SERVER_TARGET_GROUP_ARN: worldServerTargetGroup.targetGroupArn,
     };
 
     // ========================================================================
@@ -248,6 +249,7 @@ export class MatchmakerStack extends cdk.Stack {
           'ec2:AllocateAddress',
           'ec2:AssociateAddress',
           'iam:PassRole',
+          'elasticloadbalancing:DescribeTargetHealth',
         ],
         resources: ['*'],
       })

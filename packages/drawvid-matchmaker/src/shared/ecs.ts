@@ -12,9 +12,14 @@ import {
   AllocateAddressCommand,
   AssociateAddressCommand,
 } from '@aws-sdk/client-ec2';
+import {
+  ElasticLoadBalancingV2Client,
+  DescribeTargetHealthCommand,
+} from '@aws-sdk/client-elastic-load-balancing-v2';
 
 const ecsClient = new ECSClient({});
 const ec2Client = new EC2Client({});
+const elbv2Client = new ElasticLoadBalancingV2Client({});
 
 export interface LaunchConfig {
   clusterArn: string;
@@ -375,4 +380,74 @@ export async function checkTaskRunning(taskArn: string): Promise<boolean> {
     console.error('[checkTaskRunning] Error checking task:', error);
     return false;
   }
+}
+
+export async function waitForTargetHealthy(
+  targetGroupArn: string,
+  taskArn: string,
+  clusterArn: string,
+  timeoutMs: number = 60000
+): Promise<boolean> {
+  const startTime = Date.now();
+  
+  while (Date.now() - startTime < timeoutMs) {
+    try {
+      // Get task to find its ENI
+      const taskResult = await ecsClient.send(
+        new DescribeTasksCommand({
+          cluster: clusterArn,
+          tasks: [taskArn],
+        })
+      );
+
+      if (!taskResult.tasks || taskResult.tasks.length === 0) {
+        console.log('[waitForTargetHealthy] Task not found');
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        continue;
+      }
+
+      const task = taskResult.tasks[0];
+      const eni = task.attachments?.find((a) => a.type === 'ElasticNetworkInterface')
+        ?.details?.find((d) => d.name === 'networkInterfaceId')?.value;
+
+      if (!eni) {
+        console.log('[waitForTargetHealthy] Task has no ENI yet, waiting...');
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        continue;
+      }
+
+      // Check target health
+      const healthResult = await elbv2Client.send(
+        new DescribeTargetHealthCommand({
+          TargetGroupArn: targetGroupArn,
+        })
+      );
+
+      const target = healthResult.TargetHealthDescriptions?.find(
+        (t: any) => t.Target?.Id === eni
+      );
+
+      if (!target) {
+        console.log('[waitForTargetHealthy] Target not yet registered in target group');
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        continue;
+      }
+
+      console.log('[waitForTargetHealthy] Target health:', target.TargetHealth?.State);
+
+      if (target.TargetHealth?.State === 'healthy') {
+        console.log('[waitForTargetHealthy] Target is healthy!');
+        return true;
+      }
+
+      console.log('[waitForTargetHealthy] Target status:', target.TargetHealth?.State, target.TargetHealth?.Description);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    } catch (error: any) {
+      console.error('[waitForTargetHealthy] Error checking target health:', error);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+    }
+  }
+
+  console.warn('[waitForTargetHealthy] Timeout waiting for target to be healthy');
+  return false;
 }

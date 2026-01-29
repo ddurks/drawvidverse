@@ -168,15 +168,33 @@ class MatchmakerStack extends cdk.Stack {
         worldServerTargetGroup.setAttribute('stickiness.type', 'source_ip');
         worldServerTargetGroup.setAttribute('deregistration_delay.timeout_seconds', '30');
         // ========================================================================
+        // WebSocket API (must be created before Lambda functions that reference it)
+        // ========================================================================
+        const webSocketApi = new apigatewayv2.WebSocketApi(this, 'DrawvidVerseWsApi', {
+            apiName: 'drawvidverse-lobby',
+            // routeSelectionExpression is for selecting routes based on message content
+            // Use $request.body.t to route based on the 't' field in the message body
+            routeSelectionExpression: '$request.body.t',
+        });
+        // ========================================================================
+        // Lambda Environment Variables
+        // ========================================================================
         const lambdaEnv = {
             TABLE_NAME: table.tableName,
             ECS_CLUSTER_ARN: cluster.clusterArn,
             TASK_DEFINITION_ARN: taskDefinition.taskDefinitionArn,
+            TASK_ROLE_ARN: taskDefinition.taskRole.roleArn,
+            TASK_EXECUTION_ROLE_ARN: taskDefinition.executionRole.roleArn,
             SUBNETS: vpc.publicSubnets.map((s) => s.subnetId).join(','),
             SECURITY_GROUP: worldserverSecurityGroup.securityGroupId,
-            JWT_SECRET: jwtSecret.secretValue.unsafeUnwrap(), // In production, use fromSecretsManager
+            JWT_SECRET: jwtSecret.secretArn,
             [`GAME_CONFIG_${gameKey.toUpperCase()}`]: JSON.stringify(gameConfig),
+            WEBSOCKET_ENDPOINT: `https://${webSocketApi.apiId}.execute-api.${this.region}.amazonaws.com/prod`,
+            WORLD_SERVER_TARGET_GROUP_ARN: worldServerTargetGroup.targetGroupArn,
         };
+        // ========================================================================
+        // Lambda Functions
+        // ========================================================================
         const connectHandler = new lambda.Function(this, 'ConnectHandler', {
             runtime: lambda.Runtime.NODEJS_20_X,
             code: lambda.Code.fromAsset('../dist/lambda-bundle'),
@@ -216,49 +234,28 @@ class MatchmakerStack extends cdk.Stack {
             actions: [
                 'ecs:RunTask',
                 'ecs:DescribeTasks',
+                'ecs:ListTasks',
+                'ecs:StopTask',
                 'ec2:DescribeNetworkInterfaces',
                 'ec2:AllocateAddress',
                 'ec2:AssociateAddress',
-                'elasticloadbalancing:RegisterTargets',
                 'iam:PassRole',
+                'elasticloadbalancing:DescribeTargetHealth',
             ],
             resources: ['*'],
         }));
         // ========================================================================
-        // WebSocket API
+        // Configure WebSocket API routes
         // ========================================================================
-        const webSocketApi = new apigatewayv2.WebSocketApi(this, 'DrawvidVerseWsApi', {
-            apiName: 'drawvidverse-lobby',
-            // routeSelectionExpression is for selecting routes based on message content
-            // Use $request.body.t to route based on the 't' field in the message body
-            routeSelectionExpression: '$request.body.t',
-            connectRouteOptions: {
-                integration: new apigatewayv2Integrations.WebSocketLambdaIntegration('ConnectIntegration', connectHandler),
-            },
-            disconnectRouteOptions: {
-                integration: new apigatewayv2Integrations.WebSocketLambdaIntegration('DisconnectIntegration', disconnectHandler),
-            },
-            defaultRouteOptions: {
-                integration: new apigatewayv2Integrations.WebSocketLambdaIntegration('DefaultIntegration', defaultHandler),
-            },
+        webSocketApi.addRoute('$connect', {
+            integration: new apigatewayv2Integrations.WebSocketLambdaIntegration('ConnectIntegration', connectHandler),
         });
-        // --- Escape hatch: inject requestTemplates for $connect route ---
-        const connectIntegrationConstruct = webSocketApi.node.tryFindChild('ConnectIntegration');
-        if (connectIntegrationConstruct && 'node' in connectIntegrationConstruct && connectIntegrationConstruct.node.defaultChild) {
-            const cfnConnectIntegration = connectIntegrationConstruct.node.defaultChild;
-            cfnConnectIntegration.requestTemplates = {
-                'application/json': `{
-          "headers": {
-            #foreach($header in $input.params().header.keySet())
-              "$header": "$util.escapeJavaScript($input.params().header.get($header))"#if($foreach.hasNext),#end
-            #end
-          },
-          "requestContext": $util.toJson($context.requestContext),
-          "isBase64Encoded": false
-        }`
-            };
-        }
-        // Add message routes
+        webSocketApi.addRoute('$disconnect', {
+            integration: new apigatewayv2Integrations.WebSocketLambdaIntegration('DisconnectIntegration', disconnectHandler),
+        });
+        webSocketApi.addRoute('$default', {
+            integration: new apigatewayv2Integrations.WebSocketLambdaIntegration('DefaultIntegration', defaultHandler),
+        });
         webSocketApi.addRoute('createWorld', {
             integration: new apigatewayv2Integrations.WebSocketLambdaIntegration('CreateWorldIntegration', messageHandler),
         });

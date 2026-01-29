@@ -10,7 +10,7 @@ import {
   makeWorldKey,
   updateWorldActivity,
 } from '../shared/ddb.js';
-import { launchWorldTask, waitForTaskRunning, checkTaskRunning } from '../shared/ecs.js';
+import { launchWorldTask, waitForTaskRunning, checkTaskRunning, waitForTargetHealthy } from '../shared/ecs.js';
 import { issueWorldToken } from '../shared/jwt.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -26,6 +26,7 @@ const SECURITY_GROUP = process.env.SECURITY_GROUP!;
 const DDB_TABLE = process.env.TABLE_NAME!;
 const JWT_SECRET = process.env.JWT_SECRET!;
 const AWS_REGION_CONFIG = process.env.AWS_REGION || 'us-east-2';
+const WORLD_SERVER_TARGET_GROUP_ARN = process.env.WORLD_SERVER_TARGET_GROUP_ARN!;
 
 initApiClient(WEBSOCKET_ENDPOINT);
 
@@ -351,6 +352,18 @@ async function tryStartWorld(
       console.log('[tryStartWorld-async] Waiting 5s for world server to start listening...');
       await new Promise((resolve) => setTimeout(resolve, 5000));
       console.log('[tryStartWorld-async] Ready for connections!');
+
+      // Wait for NLB target to be healthy before returning endpoint to client
+      console.log('[tryStartWorld-async] Waiting for NLB target to be healthy...');
+      const targetHealthy = await waitForTargetHealthy(
+        WORLD_SERVER_TARGET_GROUP_ARN,
+        taskArn,
+        ECS_CLUSTER_ARN
+      );
+      if (!targetHealthy) {
+        throw new Error('NLB target did not become healthy within timeout');
+      }
+      console.log('[tryStartWorld-async] NLB target is healthy!');
 
       // Update world to running
       console.log('[tryStartWorld-async] Updating world to RUNNING');
