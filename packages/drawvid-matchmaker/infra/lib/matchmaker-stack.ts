@@ -180,10 +180,6 @@ export class MatchmakerStack extends cdk.Stack {
       GAME_CONFIG_CYBERIA: JSON.stringify(gameConfig),
       WEBSOCKET_ENDPOINT: `https://${webSocketApi.apiId}.execute-api.${this.region}.amazonaws.com/prod`,
     };
-      SECURITY_GROUP: worldserverSecurityGroup.securityGroupId,
-      JWT_SECRET: jwtSecret.secretValue.unsafeUnwrap(), // In production, use fromSecretsManager
-      [`GAME_CONFIG_${gameKey.toUpperCase()}`]: JSON.stringify(gameConfig),
-    };
 
     const connectHandler = new lambda.Function(this, 'ConnectHandler', {
       runtime: lambda.Runtime.NODEJS_20_X,
