@@ -41,62 +41,78 @@ jobs:
 
           # Handle manual deployment modes
           if [ "$MODE" = "deploy-backend-infra" ]; then
-            echo "matchmaker=true" >> $GITHUB_OUTPUT
-            echo "worldserver=false" >> $GITHUB_OUTPUT
+            echo "backend-infra-changed=true" >> $GITHUB_OUTPUT
+            echo "matchmaker-code-changed=false" >> $GITHUB_OUTPUT
+            echo "worldserver-changed=false" >> $GITHUB_OUTPUT
             echo "Manual mode: Deploying backend infrastructure (CDK stack)"
             exit 0
           fi
 
           if [ "$MODE" = "deploy-matchmaker" ]; then
-            echo "matchmaker=true" >> $GITHUB_OUTPUT
-            echo "worldserver=false" >> $GITHUB_OUTPUT
+            echo "backend-infra-changed=false" >> $GITHUB_OUTPUT
+            echo "matchmaker-code-changed=true" >> $GITHUB_OUTPUT
+            echo "worldserver-changed=false" >> $GITHUB_OUTPUT
             echo "Manual mode: Deploying matchmaker Lambda code only"
             exit 0
           fi
 
           if [ "$MODE" = "deploy-worldserver" ]; then
-            echo "matchmaker=false" >> $GITHUB_OUTPUT
-            echo "worldserver=true" >> $GITHUB_OUTPUT
+            echo "backend-infra-changed=false" >> $GITHUB_OUTPUT
+            echo "matchmaker-code-changed=false" >> $GITHUB_OUTPUT
+            echo "worldserver-changed=true" >> $GITHUB_OUTPUT
             echo "Manual mode: Deploying world server only"
             exit 0
           fi
 
           if [ "$MODE" = "destroy-infrastructure" ]; then
-            echo "matchmaker=false" >> $GITHUB_OUTPUT
-            echo "worldserver=false" >> $GITHUB_OUTPUT
+            echo "backend-infra-changed=false" >> $GITHUB_OUTPUT
+            echo "matchmaker-code-changed=false" >> $GITHUB_OUTPUT
+            echo "worldserver-changed=false" >> $GITHUB_OUTPUT
             echo "Manual mode: Infrastructure destruction triggered separately"
             exit 0
           fi
 
-          # Auto mode (default): detect changes from git
+          # Auto mode (default): detect changes from git and distinguish infra vs code
           if [ "${{ github.event_name }}" == "pull_request" ]; then
             CHANGED_FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD)
-          elif [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ "$MODE" = "auto" ]; then
-            CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
           else
-            # For push events, compare with previous commit
+            # For push and workflow_dispatch auto mode, compare with previous commit
             CHANGED_FILES=$(git diff --name-only HEAD~1 HEAD)
           fi
 
           echo "Changed files:"
           echo "$CHANGED_FILES"
 
-          # Check which components changed
-          MATCHMAKER_CHANGED=false
+          # Check what changed
+          BACKEND_INFRA_CHANGED=false
+          MATCHMAKER_CODE_CHANGED=false
           WORLDSERVER_CHANGED=false
 
-          if echo "$CHANGED_FILES" | grep -qE "^packages/drawvid-matchmaker/|^games/"; then
-            MATCHMAKER_CHANGED=true
+          # Infrastructure files trigger full CDK deploy (includes code)
+          if echo "$CHANGED_FILES" | grep -qE "^packages/drawvid-matchmaker/infra/|^packages/drawvid-matchmaker/package.json|^games/"; then
+            BACKEND_INFRA_CHANGED=true
+            echo "Infrastructure changes detected - will run full CDK deploy"
+          fi
+
+          # Code-only changes (no infra) trigger fast Lambda update
+          if echo "$CHANGED_FILES" | grep -qE "^packages/drawvid-matchmaker/src/|^packages/drawvid-matchmaker/bundle-lambdas"; then
+            # Only set code-changed if infra didn't change (mutually exclusive)
+            if [ "$BACKEND_INFRA_CHANGED" = "false" ]; then
+              MATCHMAKER_CODE_CHANGED=true
+              echo "Code-only changes detected - will run fast Lambda update"
+            fi
           fi
 
           if echo "$CHANGED_FILES" | grep -qE "^packages/drawvid-worldserver/|^games/"; then
             WORLDSERVER_CHANGED=true
           fi
 
-          echo "matchmaker=$MATCHMAKER_CHANGED" >> $GITHUB_OUTPUT
-          echo "worldserver=$WORLDSERVER_CHANGED" >> $GITHUB_OUTPUT
+          echo "backend-infra-changed=$BACKEND_INFRA_CHANGED" >> $GITHUB_OUTPUT
+          echo "matchmaker-code-changed=$MATCHMAKER_CODE_CHANGED" >> $GITHUB_OUTPUT
+          echo "worldserver-changed=$WORLDSERVER_CHANGED" >> $GITHUB_OUTPUT
 
-          echo "Matchmaker changed: $MATCHMAKER_CHANGED"
+          echo "Backend infra changed: $BACKEND_INFRA_CHANGED"
+          echo "Matchmaker code changed: $MATCHMAKER_CODE_CHANGED"
           echo "World server changed: $WORLDSERVER_CHANGED"
 
   deploy-backend-infra:
