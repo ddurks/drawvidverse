@@ -176,10 +176,11 @@ async function handleJoinWorld(connectionId: string, body: any): Promise<void> {
     console.log('[joinWorld] World status is', world.status, '- attempting to start');
     const started = await tryStartWorld(connectionId, gameKey, worldId);
     console.log('[joinWorld] tryStartWorld returned:', started);
-    
-    // Poll until running - max 60 seconds (20 iterations of 3 second waits)
-    // This applies whether we started it or someone else did
-    console.log('[joinWorld] Waiting for world to be RUNNING...');
+  }
+
+  // If world is not running, wait for it (whether we started it or not)
+  if (world.status !== 'RUNNING') {
+    console.log('[joinWorld] World not RUNNING yet (status:', world.status, ') - polling for startup...');
     await sendToConnection(connectionId, {
       t: 'status',
       msg: 'STARTING',
@@ -209,7 +210,7 @@ async function handleJoinWorld(connectionId: string, body: any): Promise<void> {
       return;
     }
   } else {
-    console.log('[joinWorld] World already running, status:', world.status);
+    console.log('[joinWorld] World already running');
   }
 
   // Refresh world state
