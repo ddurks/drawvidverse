@@ -274,12 +274,25 @@ jobs:
 
       - name: Update ECS task definition with new image
         run: |
-          TASK_DEF_ARN="${{ secrets.WORLD_SERVER_TASK_DEF_ARN }}"
           REGION="${{ env.AWS_REGION }}"
           IMAGE_TAG="${{ steps.build.outputs.image-tag }}"
           NEW_IMAGE="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG"
+          STACK_NAME="DrawvidVerseMatchmakerStack"
+
+          # Get task definition ARN from CloudFormation stack outputs
+          TASK_DEF_ARN=$(aws cloudformation describe-stacks \
+            --stack-name $STACK_NAME \
+            --region $REGION \
+            --query 'Stacks[0].Outputs[?OutputKey==`TaskDefinitionArn`].OutputValue' \
+            --output text)
+
+          if [ -z "$TASK_DEF_ARN" ]; then
+            echo "❌ Could not retrieve task definition ARN from CloudFormation stack"
+            exit 1
+          fi
 
           echo "Updating task definition with new image: $NEW_IMAGE"
+          echo "Task definition ARN: $TASK_DEF_ARN"
 
           # Get current task definition
           TASK_DEF=$(aws ecs describe-task-definition \
