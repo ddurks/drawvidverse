@@ -397,8 +397,13 @@ export async function waitForTargetHealthy(
   timeoutMs: number = 60000
 ): Promise<boolean> {
   const startTime = Date.now();
+  let attempt = 0;
   
   while (Date.now() - startTime < timeoutMs) {
+    attempt++;
+    const elapsed = Date.now() - startTime;
+    console.log(`[waitForTargetHealthy] Attempt ${attempt} (${elapsed}ms elapsed, ${timeoutMs}ms timeout)`);
+    
     try {
       // Get task to find its ENI
       const taskResult = await ecsClient.send(
@@ -418,6 +423,8 @@ export async function waitForTargetHealthy(
       const eni = task.attachments?.find((a) => a.type === 'ElasticNetworkInterface')
         ?.details?.find((d) => d.name === 'networkInterfaceId')?.value;
 
+      console.log('[waitForTargetHealthy] Task status:', { lastStatus: task.lastStatus, desiredStatus: task.desiredStatus, eni });
+
       if (!eni) {
         console.log('[waitForTargetHealthy] Task has no ENI yet, waiting...');
         await new Promise((resolve) => setTimeout(resolve, 5000));
@@ -431,20 +438,23 @@ export async function waitForTargetHealthy(
         })
       );
 
+      console.log('[waitForTargetHealthy] Total targets in group:', healthResult.TargetHealthDescriptions?.length);
+      
       const target = healthResult.TargetHealthDescriptions?.find(
         (t: any) => t.Target?.Id === eni
       );
 
       if (!target) {
-        console.log('[waitForTargetHealthy] Target not yet registered in target group');
+        console.log('[waitForTargetHealthy] Target not yet registered (looking for ENI:', eni, ')');
+        console.log('[waitForTargetHealthy] Registered targets:', healthResult.TargetHealthDescriptions?.map((t: any) => ({ id: t.Target?.Id, state: t.TargetHealth?.State })));
         await new Promise((resolve) => setTimeout(resolve, 5000));
         continue;
       }
 
-      console.log('[waitForTargetHealthy] Target health:', target.TargetHealth?.State);
+      console.log('[waitForTargetHealthy] Target found! State:', target.TargetHealth?.State, 'Reason:', target.TargetHealth?.Reason);
 
       if (target.TargetHealth?.State === 'healthy') {
-        console.log('[waitForTargetHealthy] Target is healthy!');
+        console.log('[waitForTargetHealthy] ✅ Target is healthy!');
         return true;
       }
 

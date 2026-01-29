@@ -258,15 +258,23 @@ async function handleJoinWorld(connectionId: string, body: any): Promise<void> {
       WORLD_SERVER_TARGET_GROUP_ARN,
       world.taskArn,
       ECS_CLUSTER_ARN,
-      15000 // 15 second timeout for existing tasks
+      60000 // 60 second timeout - allows NLB health checks to pass (3x 6s interval + buffer)
     );
     if (!targetHealthy) {
-      console.log('[joinWorld] NLB target not healthy, disconnecting client');
+      console.log('[joinWorld] NLB target not healthy - task likely needs restart');
+      // Update world back to STOPPED so next request will relaunch it
+      await updateWorldToError(gameKey, worldId, 'RESTARTING');
       await sendToConnection(connectionId, {
-        t: 'err',
-        code: 'WORLD_NLB_NOT_READY',
-        msg: 'World server not ready for connections',
+        t: 'status',
+        msg: 'STARTING', // Tell client it's restarting
       });
+      // Retry this join after a delay
+      setTimeout(() => {
+        console.log('[joinWorld] Retrying joinWorld after task restart...');
+        handleJoinWorld(connectionId, gameKey, worldId).catch(err => {
+          console.error('[joinWorld] Retry failed:', err);
+        });
+      }, 3000);
       return;
     }
     console.log('[joinWorld] NLB target is healthy!');
