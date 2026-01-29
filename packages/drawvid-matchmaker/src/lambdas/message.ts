@@ -251,6 +251,27 @@ async function handleJoinWorld(connectionId: string, body: any): Promise<void> {
     return;
   }
 
+  // Verify NLB target is healthy before sending endpoint to client
+  if (world.taskArn) {
+    console.log('[joinWorld] Verifying NLB target is healthy...');
+    const targetHealthy = await waitForTargetHealthy(
+      WORLD_SERVER_TARGET_GROUP_ARN,
+      world.taskArn,
+      ECS_CLUSTER_ARN,
+      15000 // 15 second timeout for existing tasks
+    );
+    if (!targetHealthy) {
+      console.log('[joinWorld] NLB target not healthy, disconnecting client');
+      await sendToConnection(connectionId, {
+        t: 'err',
+        code: 'WORLD_NLB_NOT_READY',
+        msg: 'World server not ready for connections',
+      });
+      return;
+    }
+    console.log('[joinWorld] NLB target is healthy!');
+  }
+
   // Update connection
   await updateConnectionWorld(connectionId, makeWorldKey(gameKey, worldId));
 
