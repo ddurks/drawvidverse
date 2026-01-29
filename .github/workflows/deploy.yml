@@ -91,8 +91,8 @@ jobs:
           echo "Matchmaker changed: $MATCHMAKER_CHANGED"
           echo "World server changed: $WORLDSERVER_CHANGED"
 
-  deploy-matchmaker:
-    name: Deploy Matchmaker
+  deploy-backend-infra:
+    name: Deploy Backend Infrastructure
     runs-on: ubuntu-latest
     needs: detect-changes
     if: needs.detect-changes.outputs.matchmaker-changed == 'true'
@@ -127,7 +127,7 @@ jobs:
           echo "Lambda bundle contents:"
           ls -la dist/lambda-bundle/ || echo "Lambda bundle directory not found"
 
-      - name: Deploy matchmaker stack
+      - name: Deploy backend infrastructure stack
         run: |
           cd packages/drawvid-matchmaker/infra
           npx cdk deploy --all --require-approval never
@@ -136,15 +136,86 @@ jobs:
 
       - name: Deployment summary
         run: |
-          echo "✅ Matchmaker deployed successfully"
+          echo "✅ Backend infrastructure deployed successfully"
           echo "CDK Stack: DrawvidVerseMatchmakerStack"
+          echo "Components: ECS Cluster, VPC, Load Balancer, Lambda Functions"
           echo "Region: ${{ env.AWS_REGION }}"
+
+  deploy-matchmaker:
+    name: Deploy Matchmaker Lambda Code
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.matchmaker-changed == 'true'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install workspace dependencies
+        run: npm install --workspaces
+
+      - name: Install dependencies and build Lambda code
+        run: |
+          cd packages/drawvid-matchmaker
+          npm install
+          npm run bundle-lambdas
+          echo "Lambda bundle created:"
+          ls -la dist/lambda-bundle/ || echo "Lambda bundle directory not found"
+
+      - name: Package Lambda code as ZIP
+        run: |
+          cd packages/drawvid-matchmaker/dist/lambda-bundle
+          zip -r ../lambda-bundle.zip .
+          ls -la ../lambda-bundle.zip
+
+      - name: Update Lambda functions
+        run: |
+          STACK_NAME="DrawvidVerseMatchmakerStack"
+          REGION="${{ env.AWS_REGION }}"
+          BUNDLE_ZIP="packages/drawvid-matchmaker/dist/lambda-bundle.zip"
+          
+          echo "Getting Lambda function names from CloudFormation stack..."
+          FUNCTIONS=$(aws cloudformation describe-stack-resources \
+            --stack-name $STACK_NAME \
+            --region $REGION \
+            --query 'StackResources[?ResourceType==`AWS::Lambda::Function` && LogicalResourceId!=`CleanupHandler`].PhysicalResourceId' \
+            --output text)
+          
+          echo "Found functions to update: $FUNCTIONS"
+          
+          # Update each Lambda function with the bundled code
+          for FUNC in $FUNCTIONS; do
+            echo "Updating function: $FUNC"
+            aws lambda update-function-code \
+              --function-name $FUNC \
+              --zip-file fileb://$BUNDLE_ZIP \
+              --region $REGION && echo "✅ Updated $FUNC" || echo "❌ Failed to update $FUNC"
+          done
+
+      - name: Deployment summary
+        run: |
+          echo "✅ Matchmaker Lambda functions updated"
+          echo "New code deployed without infrastructure changes"
+          echo "Code updated: connect, disconnect, default, message handlers"
 
   deploy-worldserver:
     name: Deploy World Server
     runs-on: ubuntu-latest
     needs: detect-changes
     if: needs.detect-changes.outputs.worldserver-changed == 'true'
+    outputs:
+      image-tag: ${{ steps.build.outputs.image-tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -170,8 +241,39 @@ jobs:
           npm install
 
       - name: Build world server image
+        id: build
         run: |
+          IMAGE_TAG=$(date +%s)
+          echo "image-tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
           ./tools/scripts/build-worldserver.sh ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}
+
+      - name: Update ECS task definition with new image
+        run: |
+          TASK_DEF_ARN="${{ secrets.WORLD_SERVER_TASK_DEF_ARN }}"
+          REGION="${{ env.AWS_REGION }}"
+          IMAGE_TAG="${{ steps.build.outputs.image-tag }}"
+          NEW_IMAGE="${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}:$IMAGE_TAG"
+          
+          echo "Updating task definition with new image: $NEW_IMAGE"
+          
+          # Get current task definition
+          TASK_DEF=$(aws ecs describe-task-definition \
+            --task-definition $TASK_DEF_ARN \
+            --region $REGION \
+            --output json)
+          
+          # Update image in task definition
+          NEW_TASK_DEF=$(echo "$TASK_DEF" | jq --arg NEW_IMAGE "$NEW_IMAGE" \
+            '.taskDefinition | .containerDefinitions[0].image = $NEW_IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
+          
+          # Register new task definition
+          REGISTER_RESULT=$(aws ecs register-task-definition \
+            --cli-input-json "$(echo "$NEW_TASK_DEF" | jq -c .)" \
+            --region $REGION \
+            --output json)
+          
+          NEW_TASK_DEF_ARN=$(echo "$REGISTER_RESULT" | jq -r '.taskDefinition.taskDefinitionArn')
+          echo "✅ Registered new task definition: $NEW_TASK_DEF_ARN"
 
       - name: Stop ECS tasks to pick up new image
         run: |
@@ -185,70 +287,23 @@ jobs:
               echo "Stopping $TASK"
               aws ecs stop-task --cluster $CLUSTER --task $TASK --region $REGION 2>/dev/null || true
             done
-            echo "Tasks stopped"
+            echo "✅ Tasks stopped - new tasks will use updated image on next startup"
           else
             echo "No running tasks found"
           fi
 
-      - name: Clean up stale world records from DynamoDB
-        run: |
-          STACK_NAME="DrawvidVerseMatchmakerStack"
-          REGION="${{ env.AWS_REGION }}"
-          
-          echo "Getting DynamoDB table name from CloudFormation..."
-          TABLE_NAME=$(aws cloudformation describe-stacks \
-            --stack-name $STACK_NAME \
-            --region $REGION \
-            --query 'Stacks[0].Outputs[?OutputKey==`WorldsTableName`].OutputValue' \
-            --output text 2>/dev/null)
-          
-          if [ -z "$TABLE_NAME" ]; then
-            echo "Could not find table name, skipping DynamoDB cleanup"
-            exit 0
-          fi
-          
-          echo "Cleaning up world records from table: $TABLE_NAME"
-          
-          # Query for all world items (pk starts with "world_")
-          ITEMS=$(aws dynamodb query \
-            --table-name $TABLE_NAME \
-            --key-condition-expression "begins_with(pk, :pk)" \
-            --expression-attribute-values '{":pk":{"S":"world_"}}' \
-            --region $REGION \
-            --output json 2>/dev/null || echo '{"Items":[]}')
-          
-          # Delete each item
-          echo "$ITEMS" | jq -r '.Items[] | @base64' | while read item; do
-            DECODED=$(echo $item | base64 -d)
-            PK=$(echo "$DECODED" | jq -r '.pk.S')
-            SK=$(echo "$DECODED" | jq -r '.sk.S')
-            
-            if [ -n "$PK" ] && [ -n "$SK" ]; then
-              echo "Deleting world record: $PK / $SK"
-              aws dynamodb delete-item \
-                --table-name $TABLE_NAME \
-                --key "{\"pk\":{\"S\":\"$PK\"},\"sk\":{\"S\":\"$SK\"}}" \
-                --region $REGION 2>/dev/null || true
-            fi
-          done
-          
-          echo "DynamoDB cleanup complete"
-
       - name: Deployment summary
         run: |
           echo "✅ World server image built and pushed to ECR"
-          echo "✅ ECS tasks stopped"
-          echo "✅ Stale world records cleaned from DynamoDB"
-          echo "✅ Lambda will restart tasks with new image"
+          echo "✅ ECS task definition updated with new image tag"
+          echo "✅ ECS tasks stopped - Lambda will restart with new image"
           echo "Repository: ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }}"
-
-
-
+          echo "Image tag: ${{ steps.build.outputs.image-tag }}"
 
   deployment-complete:
     name: Deployment Complete
     runs-on: ubuntu-latest
-    needs: [detect-changes, deploy-matchmaker, deploy-worldserver]
+    needs: [detect-changes, deploy-backend-infra, deploy-matchmaker, deploy-worldserver]
     if: always()
     steps:
       - name: Check deployment results
@@ -256,7 +311,8 @@ jobs:
           echo "🚀 Backend Deployment Pipeline Complete"
           echo ""
           echo "Component Summary:"
-          echo "- Matchmaker: ${{ needs.detect-changes.outputs.matchmaker-changed == 'true' && '✅ Deployed' || '⏭️  Skipped' }}"
+          echo "- Backend Infrastructure: ${{ needs.detect-changes.outputs.matchmaker-changed == 'true' && '✅ Deployed' || '⏭️  Skipped' }}"
+          echo "- Matchmaker Lambda Code: ${{ needs.detect-changes.outputs.matchmaker-changed == 'true' && '✅ Updated' || '⏭️  Skipped' }}"
           echo "- World Server: ${{ needs.detect-changes.outputs.worldserver-changed == 'true' && '✅ Deployed' || '⏭️  Skipped' }}"
           echo ""
           echo "Note: Frontend deployment is handled by cyberia repository"
@@ -268,7 +324,7 @@ jobs:
 
       - name: Fail if any deployment failed
         if: |
-          (needs.detect-changes.outputs.matchmaker-changed == 'true' && needs.deploy-matchmaker.result == 'failure') ||
+          (needs.detect-changes.outputs.matchmaker-changed == 'true' && (needs.deploy-backend-infra.result == 'failure' || needs.deploy-matchmaker.result == 'failure')) ||
           (needs.detect-changes.outputs.worldserver-changed == 'true' && needs.deploy-worldserver.result == 'failure')
         run: |
           echo "❌ One or more deployments failed!"

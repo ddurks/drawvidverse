@@ -25,17 +25,27 @@ npm run build
 # Go back to workspace root for Docker build
 cd "$WORKSPACE_ROOT"
 
-# Build container image (from workspace root so Dockerfile can access workspace files)
-docker build -f packages/drawvid-worldserver/Dockerfile -t drawvidverse-worldserver:latest .
+# Generate a timestamp-based image tag to ensure ECS picks up new image
+IMAGE_TAG=$(date +%s)
 
-# Tag for ECR
+# Build container image (from workspace root so Dockerfile can access workspace files)
+docker build -f packages/drawvid-worldserver/Dockerfile -t drawvidverse-worldserver:$IMAGE_TAG .
+docker tag drawvidverse-worldserver:$IMAGE_TAG drawvidverse-worldserver:latest
+
+# Tag for ECR with both timestamp and latest
+docker tag drawvidverse-worldserver:$IMAGE_TAG $REPO_URI:$IMAGE_TAG
 docker tag drawvidverse-worldserver:latest $REPO_URI:latest
 
 echo "Pushing to ECR..."
 # Get login token
 aws ecr get-login-password --region us-east-2 | docker login --username AWS --password-stdin $REPO_URI
 
-# Push
+# Push both tags
+docker push $REPO_URI:$IMAGE_TAG
 docker push $REPO_URI:latest
 
-echo "Done! Image pushed to $REPO_URI:latest"
+echo "Done! Image pushed to:"
+echo "  - $REPO_URI:$IMAGE_TAG (timestamp tag)"
+echo "  - $REPO_URI:latest (latest tag)"
+echo ""
+echo "Note: Update ECS task definition to use timestamp tag ($IMAGE_TAG) to force image pull"

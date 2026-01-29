@@ -177,40 +177,36 @@ async function handleJoinWorld(connectionId: string, body: any): Promise<void> {
     const started = await tryStartWorld(connectionId, gameKey, worldId);
     console.log('[joinWorld] tryStartWorld returned:', started);
     
-    if (!started) {
-      // Someone else is starting it, wait and poll
-      console.log('[joinWorld] Someone else starting, polling...');
+    // Poll until running - max 60 seconds (20 iterations of 3 second waits)
+    // This applies whether we started it or someone else did
+    console.log('[joinWorld] Waiting for world to be RUNNING...');
+    await sendToConnection(connectionId, {
+      t: 'status',
+      msg: 'STARTING',
+    });
+
+    let pollCount = 0;
+    for (let i = 0; i < 20; i++) {
+      pollCount++;
+      console.log('[joinWorld] Poll iteration', i, '- waiting 3 seconds...');
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+
+      world = await getWorld(gameKey, worldId);
+      console.log('[joinWorld] Poll', i, '- world status:', world?.status, 'taskArn:', world?.taskArn);
+      if (world && world.status === 'RUNNING') {
+        console.log('[joinWorld] World is RUNNING after', pollCount, 'polls');
+        break;
+      }
+    }
+
+    if (!world || world.status !== 'RUNNING') {
+      console.log('[joinWorld] Timeout after', pollCount, 'polls. Final status:', world?.status);
       await sendToConnection(connectionId, {
-        t: 'status',
-        msg: 'STARTING',
+        t: 'err',
+        code: 'START_TIMEOUT',
+        msg: `World did not start. Status: ${world?.status || 'unknown'}`,
       });
-
-      // Poll until running - max 60 seconds (20 iterations of 3 second waits)
-      let pollCount = 0;
-      for (let i = 0; i < 20; i++) {
-        pollCount++;
-        console.log('[joinWorld] Poll iteration', i, '- waiting 3 seconds...');
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-
-        world = await getWorld(gameKey, worldId);
-        console.log('[joinWorld] Poll', i, '- world status:', world?.status, 'taskArn:', world?.taskArn);
-        if (world && world.status === 'RUNNING') {
-          console.log('[joinWorld] World is RUNNING after', pollCount, 'polls');
-          break;
-        }
-      }
-
-      if (!world || world.status !== 'RUNNING') {
-        console.log('[joinWorld] Timeout after', pollCount, 'polls. Final status:', world?.status);
-        await sendToConnection(connectionId, {
-          t: 'err',
-          code: 'START_TIMEOUT',
-          msg: `World did not start. Status: ${world?.status || 'unknown'}`,
-        });
-        return;
-      }
-    } else {
-      console.log('[joinWorld] We started the world successfully');
+      return;
     }
   } else {
     console.log('[joinWorld] World already running, status:', world.status);
