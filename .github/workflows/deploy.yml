@@ -215,24 +215,50 @@ jobs:
         run: |
           STACK_NAME="DrawvidVerseMatchmakerStack"
           REGION="${{ env.AWS_REGION }}"
-          BUNDLE_ZIP="packages/drawvid-matchmaker/dist/lambda-bundle.zip"
+          BUNDLE_ZIP="$(pwd)/packages/drawvid-matchmaker/dist/lambda-bundle.zip"
+
+          # Verify ZIP file exists
+          if [ ! -f "$BUNDLE_ZIP" ]; then
+            echo "❌ ERROR: Lambda bundle ZIP not found at $BUNDLE_ZIP"
+            ls -la packages/drawvid-matchmaker/dist/
+            exit 1
+          fi
+          echo "✅ Found bundle ZIP: $(ls -lh $BUNDLE_ZIP)"
 
           echo "Getting Lambda function names from CloudFormation stack..."
           FUNCTIONS=$(aws cloudformation describe-stack-resources \
             --stack-name $STACK_NAME \
             --region $REGION \
-            --query 'StackResources[?ResourceType==`AWS::Lambda::Function` && LogicalResourceId!=`CleanupHandler`].PhysicalResourceId' \
+            --query 'StackResources[?ResourceType==`AWS::Lambda::Function`].PhysicalResourceId' \
             --output text)
 
-          echo "Found functions to update: $FUNCTIONS"
+          echo "Found Lambda functions: $FUNCTIONS"
+          
+          if [ -z "$FUNCTIONS" ]; then
+            echo "❌ ERROR: No Lambda functions found in stack $STACK_NAME"
+            exit 1
+          fi
 
           # Update each Lambda function with the bundled code
           for FUNC in $FUNCTIONS; do
+            echo ""
             echo "Updating function: $FUNC"
-            aws lambda update-function-code \
-              --function-name $FUNC \
-              --zip-file fileb://$BUNDLE_ZIP \
-              --region $REGION && echo "✅ Updated $FUNC" || echo "❌ Failed to update $FUNC"
+            if aws lambda update-function-code \
+              --function-name "$FUNC" \
+              --zip-file "fileb://$BUNDLE_ZIP" \
+              --region "$REGION"; then
+              echo "✅ Successfully updated $FUNC"
+              # Show the new last modified time
+              MODIFIED=$(aws lambda get-function \
+                --function-name "$FUNC" \
+                --region "$REGION" \
+                --query 'Configuration.LastModified' \
+                --output text)
+              echo "   Last modified: $MODIFIED"
+            else
+              echo "❌ Failed to update $FUNC"
+              exit 1
+            fi
           done
 
       - name: Deployment summary
