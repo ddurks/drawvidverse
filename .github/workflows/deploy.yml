@@ -26,8 +26,9 @@ jobs:
     name: Detect Component Changes
     runs-on: ubuntu-latest
     outputs:
-      matchmaker-changed: ${{ steps.changes.outputs.matchmaker }}
-      worldserver-changed: ${{ steps.changes.outputs.worldserver }}
+      backend-infra-changed: ${{ steps.changes.outputs.backend-infra-changed }}
+      matchmaker-code-changed: ${{ steps.changes.outputs.matchmaker-code-changed }}
+      worldserver-changed: ${{ steps.changes.outputs.worldserver-changed }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
