@@ -75,6 +75,18 @@ export async function launchWorldTask(config: LaunchConfig): Promise<{ arn: stri
   console.log('[launchWorldTask] Launching new world server task...');
   
   try {
+    console.log('[launchWorldTask] RunTask configuration:', {
+      cluster: config.clusterArn,
+      taskDefinition: config.taskDefinitionArn,
+      launchType: 'FARGATE',
+      loadBalancers: [{
+        targetGroupArn: config.targetGroupArn,
+        containerName: 'worldserver',
+        containerPort: 7777,
+      }],
+      assignPublicIp: 'ENABLED',
+    });
+
     const result = await ecsClient.send(
       new RunTaskCommand({
         cluster: config.clusterArn,
@@ -132,11 +144,12 @@ export async function launchWorldTask(config: LaunchConfig): Promise<{ arn: stri
 
     const taskArn = result.tasks[0].taskArn!;
     const taskStatus = result.tasks[0];
-    console.log('[launchWorldTask] New task launched:', {
+    console.log('[launchWorldTask] ✅ New task launched:', {
       arn: taskArn,
       lastStatus: taskStatus.lastStatus,
       desiredStatus: taskStatus.desiredStatus,
     });
+    console.log('[launchWorldTask] Task will auto-register with NLB due to loadBalancers property');
     return { arn: taskArn, isNew: true }; // Mark as new
   } catch (error: any) {
     console.error('[launchWorldTask] Error launching task:', error);
@@ -468,4 +481,107 @@ export async function waitForTargetHealthy(
 
   console.warn('[waitForTargetHealthy] Timeout waiting for target to be healthy');
   return false;
+}
+
+/**
+ * Debug function to inspect the complete state of NLB registration
+ * Call this when diagnosing connectivity issues
+ */
+export async function debugNlbState(
+  targetGroupArn: string,
+  taskArn?: string,
+  clusterArn?: string
+): Promise<void> {
+  try {
+    console.log('[debugNlbState] ========== NLB STATE DEBUG ==========');
+    
+    // Get all targets in target group
+    console.log('[debugNlbState] Fetching target group health...');
+    const healthResult = await elbv2Client.send(
+      new DescribeTargetHealthCommand({
+        TargetGroupArn: targetGroupArn,
+      })
+    );
+
+    const targets = healthResult.TargetHealthDescriptions || [];
+    console.log('[debugNlbState] Total targets in group:', targets.length);
+    
+    targets.forEach((target: any, idx: number) => {
+      console.log(`[debugNlbState] Target ${idx}:`, {
+        id: target.Target?.Id,
+        port: target.Target?.Port,
+        state: target.TargetHealth?.State,
+        reason: target.TargetHealth?.Reason,
+        description: target.TargetHealth?.Description,
+      });
+    });
+
+    // If task ARN provided, get detailed task info
+    if (taskArn && clusterArn) {
+      console.log('[debugNlbState] Fetching task details...');
+      const taskResult = await ecsClient.send(
+        new DescribeTasksCommand({
+          cluster: clusterArn,
+          tasks: [taskArn],
+        })
+      );
+
+      if (taskResult.tasks && taskResult.tasks.length > 0) {
+        const task = taskResult.tasks[0];
+        const eni = task.attachments?.find((a) => a.type === 'ElasticNetworkInterface')
+          ?.details?.find((d) => d.name === 'networkInterfaceId')?.value;
+
+        console.log('[debugNlbState] Task:', {
+          arn: taskArn,
+          lastStatus: task.lastStatus,
+          desiredStatus: task.desiredStatus,
+          eni: eni,
+          createdAt: task.createdAt,
+          startedAt: task.startedAt,
+          stoppingAt: task.stoppingAt,
+          stoppedAt: task.stoppedAt,
+          stopCode: task.stopCode,
+        });
+
+        if (eni) {
+          // Get ENI details
+          const eniResult = await ec2Client.send(
+            new DescribeNetworkInterfacesCommand({
+              NetworkInterfaceIds: [eni],
+            })
+          );
+
+          if (eniResult.NetworkInterfaces && eniResult.NetworkInterfaces.length > 0) {
+            const networkInterface = eniResult.NetworkInterfaces[0];
+            console.log('[debugNlbState] ENI Details:', {
+              eni: eni,
+              privateIp: networkInterface.PrivateIpAddress,
+              publicIp: networkInterface.Association?.PublicIp,
+              status: networkInterface.Status,
+              subnetId: networkInterface.SubnetId,
+              vpcId: networkInterface.VpcId,
+            });
+          }
+
+          // Check if this ENI is in the target group
+          const matchingTarget = targets.find((t: any) => t.Target?.Id === eni);
+          if (matchingTarget) {
+            console.log('[debugNlbState] ✅ Task ENI IS registered in NLB target group');
+            console.log('[debugNlbState] NLB state:', matchingTarget.TargetHealth?.State);
+          } else {
+            console.log('[debugNlbState] ❌ Task ENI NOT found in NLB target group');
+            console.log('[debugNlbState] This is the root cause - task must be launched with loadBalancers property');
+          }
+        } else {
+          console.log('[debugNlbState] ⚠️  Task has no ENI yet - still provisioning');
+        }
+      } else {
+        console.log('[debugNlbState] ⚠️  Task not found');
+      }
+    }
+
+    console.log('[debugNlbState] ========== END DEBUG ==========');
+  } catch (error: any) {
+    console.error('[debugNlbState] Error during debug:', error);
+  }
 }

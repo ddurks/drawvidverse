@@ -10,7 +10,7 @@ import {
   makeWorldKey,
   updateWorldActivity,
 } from '../shared/ddb.js';
-import { launchWorldTask, waitForTaskRunning, checkTaskRunning, waitForTargetHealthy } from '../shared/ecs.js';
+import { launchWorldTask, waitForTaskRunning, checkTaskRunning, waitForTargetHealthy, debugNlbState } from '../shared/ecs.js';
 import { issueWorldToken } from '../shared/jwt.js';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -254,14 +254,22 @@ async function handleJoinWorld(connectionId: string, body: any): Promise<void> {
   // Verify NLB target is healthy before sending endpoint to client
   if (world.taskArn) {
     console.log('[joinWorld] Verifying NLB target is healthy...');
+    console.log('[joinWorld] Task ARN:', world.taskArn);
+    console.log('[joinWorld] Target Group ARN:', WORLD_SERVER_TARGET_GROUP_ARN);
+    
     const targetHealthy = await waitForTargetHealthy(
       WORLD_SERVER_TARGET_GROUP_ARN,
       world.taskArn,
       ECS_CLUSTER_ARN,
       60000 // 60 second timeout - allows NLB health checks to pass (3x 6s interval + buffer)
     );
+    
     if (!targetHealthy) {
-      console.log('[joinWorld] NLB target not healthy - task likely needs restart');
+      console.log('[joinWorld] ❌ NLB target not healthy - debugging state...');
+      // Call debug function to help diagnose
+      await debugNlbState(WORLD_SERVER_TARGET_GROUP_ARN, world.taskArn, ECS_CLUSTER_ARN);
+      
+      console.log('[joinWorld] Task likely needs restart, sending STARTING status and retrying...');
       // Send STARTING status to client so it knows to wait
       await sendToConnection(connectionId, {
         t: 'status',
@@ -277,7 +285,7 @@ async function handleJoinWorld(connectionId: string, body: any): Promise<void> {
       }, 3000);
       return;
     }
-    console.log('[joinWorld] NLB target is healthy!');
+    console.log('[joinWorld] ✅ NLB target is healthy!');
   }
 
   // Update connection
